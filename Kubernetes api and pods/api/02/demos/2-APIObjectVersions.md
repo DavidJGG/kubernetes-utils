@@ -4,7 +4,7 @@
 
 Kubernetes utiliza un sistema de versionado de API para evolucionar sus recursos de manera controlada. Comprender cómo funcionan las versiones de API es crucial para mantener la compatibilidad y migrar recursos cuando las versiones antiguas se deprecan.
 
-## 🎯 Objetivos de Aprendizaje
+## 🎯 Objetivos
 
 Al completar esta guía, serás capaz de:
 - [ ] Entender el esquema de versionado de Kubernetes (v1, v1beta1, v2alpha1)

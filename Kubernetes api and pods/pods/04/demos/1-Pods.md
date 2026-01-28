@@ -4,7 +4,7 @@
 
 Los **Pods** son la unidad más pequeña y básica de deployment en Kubernetes. Un Pod representa un proceso corriendo en tu cluster y encapsula uno o más contenedores, almacenamiento compartido, y opciones de red.
 
-## 🎯 Objetivos de Aprendizaje
+## 🎯 Objetivos
 
 - [ ] Entender qué es un Pod y su rol en Kubernetes
 - [ ] Crear y gestionar Pods

@@ -4,7 +4,7 @@
 
 Los **labels** son pares clave-valor que se adjuntan a objetos de Kubernetes para identificarlos y organizarlos. Los **selectors** permiten filtrar y seleccionar objetos basándose en sus labels. Son fundamentales para cómo Deployments encuentran Pods, Services enrutan tráfico, y cómo organizas recursos.
 
-## 🎯 Objetivos de Aprendizaje
+## 🎯 Objetivos
 
 Al completar esta guía, serás capaz de:
 - [ ] Crear y gestionar labels en recursos

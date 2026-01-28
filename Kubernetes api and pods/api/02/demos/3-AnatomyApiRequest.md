@@ -4,7 +4,7 @@
 
 Cada comando de `kubectl` se traduce en una petición HTTP al API Server de Kubernetes. Entender cómo funcionan estos requests te ayudará a debuggear problemas, optimizar operaciones, y trabajar directamente con la API cuando sea necesario.
 
-## 🎯 Objetivos de Aprendizaje
+## 🎯 Objetivos
 
 Al completar esta guía, serás capaz de:
 - [ ] Entender cómo kubectl se comunica con el API Server

@@ -4,7 +4,7 @@
 
 Los **namespaces** son una forma de dividir recursos de un cluster entre múltiples usuarios, equipos o aplicaciones. Proporcionan un scope para nombres de recursos y son fundamentales para organizar y aislar workloads.
 
-## 🎯 Objetivos de Aprendizaje
+## 🎯 Objetivos
 
 Al completar esta guía, serás capaz de:
 - [ ] Crear y gestionar namespaces

@@ -4,7 +4,7 @@
 
 El API Server de Kubernetes es el componente central que expone la API de Kubernetes. Todos los comandos de `kubectl` y las operaciones del cluster interactúan con el API Server. Comprender cómo descubrir y explorar los recursos disponibles es fundamental para trabajar efectivamente con Kubernetes.
 
-## 🎯 Objetivos de Aprendizaje
+## 🎯 Objetivos
 
 Al completar esta guía, serás capaz de:
 - [ ] Descubrir qué recursos API están disponibles en tu cluster
