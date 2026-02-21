@@ -23,6 +23,12 @@ Comandos relacionados con la API de Kubernetes, namespaces, labels, pods y sus c
 
 Informacion del cluster, contextos y descubrimiento de la API.
 
+Conceptos clave:
+- El **API Server** es la unica forma de interactuar con el cluster. Es una arquitectura cliente/servidor RESTful sobre HTTP/HTTPS usando JSON
+- El API Server es **stateless**: los cambios se persisten en **etcd**, no en el API Server
+- Los objetos de la API se organizan por **Kind** (Pod, Deployment, Service), **API Group** (core, apps, storage) y **API Version** (v1, v1beta1)
+- Un request pasa por: Connection -> Authentication -> Authorization -> Admission Control -> Persist to etcd
+
 ```bash
 # Ver contextos configurados
 kubectl config get-contexts
@@ -55,6 +61,10 @@ kubectl explain deployment --api-version apps/v1 | more
 
 ### dry-run
 
+Conceptos clave:
+- **server-side**: el request se procesa completo pero no se persiste en etcd. Detecta errores de validacion y conflictos
+- **client-side**: valida solo la sintaxis del manifiesto sin enviarlo al API Server. Util para generar YAML
+
 Validar manifiestos sin aplicarlos.
 
 ```bash
@@ -76,12 +86,18 @@ kubectl create deployment nginx --image=nginx --dry-run=client -o yaml > deploym
 
 ### diff
 
+Compara el estado actual de un recurso en el cluster contra lo definido en un manifiesto local.
+
 ```bash
 # Comparar manifiesto local contra lo que esta en el cluster
 kubectl diff -f deployment-new.yaml
 ```
 
 ### proxy y verbosity
+
+Conceptos clave:
+- `kubectl proxy` crea una conexion autenticada al API Server en localhost, permitiendo usar `curl` u otros clientes HTTP
+- Los niveles de verbosity (-v 6 a -v 9) muestran progresivamente mas detalle de la comunicacion HTTP con el API Server
 
 ```bash
 # Iniciar proxy al API Server
@@ -100,6 +116,13 @@ Ejemplo YAML: [pod.yaml](./api/02/demos/pod.yaml), [deployment.yaml](./api/02/de
 ---
 
 ## Namespaces
+
+Conceptos clave:
+- Un namespace es una **subdivision logica** del cluster que provee aislamiento de recursos, seguridad (RBAC) y naming
+- Un recurso solo puede estar en **un namespace** a la vez
+- Los namespaces por defecto son: `default`, `kube-system` (pods del sistema), `kube-public` (recursos compartidos)
+- Recursos como Pods, Deployments y Services **son namespaced**. Recursos como Nodes y PersistentVolumes **no lo son**
+- Eliminar un namespace **elimina todos sus recursos**
 
 ```bash
 # Listar namespaces
@@ -144,6 +167,13 @@ Ejemplo YAML: [namespace.yaml](./namespaces%20tags%20annotations/03/demos/namesp
 ---
 
 ## Labels y Selectors
+
+Conceptos clave:
+- Un label es un **par key/value** no jerarquico asociado a cualquier recurso (keys <= 63 chars, values <= 253 chars)
+- Un recurso puede tener **multiples labels**
+- Los **selectors** permiten filtrar y operar sobre colecciones de recursos
+- Kubernetes usa labels internamente para: asociar Pods a ReplicaSets, registrar endpoints en Services, y programar Pods en Nodes
+- Cambiar el label de un Pod lo **desasocia** de su ReplicaSet/Service (util para debugging en produccion)
 
 ```bash
 # Ver labels de todos los pods
@@ -215,6 +245,13 @@ Ejemplo YAML: [CreatePodsWithLabels.yaml](./namespaces%20tags%20annotations/03/d
 
 ## Pods
 
+Conceptos clave:
+- El Pod es la **unidad minima de scheduling y deployment** en Kubernetes
+- Un Pod encapsula: contenedor(es), almacenamiento, red y configuracion
+- Generalmente se ejecuta **un proceso por contenedor, un contenedor por Pod**
+- No se recomienda ejecutar Pods "desnudos" (sin controller). Si el nodo falla, el Pod no se recrea
+- `kubectl port-forward` permite acceso directo al Pod sin necesidad de un Service
+
 ```bash
 # Crear pod desde YAML
 kubectl apply -f pod.yaml
@@ -252,6 +289,12 @@ kubectl delete -f deployment.yaml
 
 ### Static Pods
 
+Conceptos clave:
+- Los Static Pods son gestionados directamente por el **kubelet** de un nodo, no por el API Server
+- Se definen colocando manifiestos YAML en el `staticPodPath` del nodo (tipicamente `/etc/kubernetes/manifests/`)
+- No se pueden eliminar con `kubectl delete`; hay que remover el manifiesto del nodo
+- Los componentes del control plane (etcd, kube-apiserver, etc.) se ejecutan como Static Pods
+
 ```bash
 # Generar manifiesto para static pod
 kubectl run hello-world --image=hello-app:2.0 --dry-run=client -o yaml --port=8080
@@ -271,6 +314,11 @@ Ejemplo YAML: [pod.yaml](./pods/04/demos/pod.yaml), [deployment.yaml](./pods/04/
 ---
 
 ## Multi-container Pods
+
+Conceptos clave:
+- Multiples contenedores en un Pod comparten la **misma red (localhost)** y pueden compartir **volumenes**
+- Patron comun: **producer/consumer** donde un contenedor escribe datos y otro los consume
+- Si no se especifica `--container`, `kubectl exec` accede al **primer contenedor** del Pod
 
 ```bash
 # Crear multi-container pod
@@ -292,7 +340,10 @@ Ejemplo YAML: [multicontainer-pod.yaml](./pods/04/demos/multicontainer-pod.yaml)
 
 ## Init Containers
 
-Los init containers se ejecutan en serie hasta completarse antes de que inicie el contenedor principal.
+Conceptos clave:
+- Se ejecutan **en serie** y deben completarse exitosamente antes de que inicie el contenedor principal
+- Utiles para: descargar dependencias, esperar a que un servicio este disponible, configurar permisos
+- Si un init container falla, Kubernetes reinicia el Pod segun la restart policy
 
 ```bash
 # Crear pod con init containers
@@ -311,6 +362,13 @@ Ejemplo YAML: [init-containers.yaml](./pods/04/demos/init-containers.yaml)
 
 ## Pod Lifecycle
 
+Conceptos clave:
+- `Always` (default): reinicia el contenedor siempre. Usado en aplicaciones de larga duracion (web servers)
+- `OnFailure`: reinicia solo si el contenedor termina con exit code != 0. Usado en Jobs
+- `Never`: no reinicia. Util para tareas que solo deben ejecutarse una vez
+- Al reiniciar, Kubernetes aplica **exponential backoff** (10s, 20s, 40s... hasta 5min)
+- El campo `Restart Count` en `kubectl get pods` muestra cuantas veces se ha reiniciado el contenedor
+
 ```bash
 # Ver restart policy de un pod
 kubectl explain pods.spec.restartPolicy
@@ -328,15 +386,18 @@ kubectl get pods
 kubectl describe pod hello-world-pod
 ```
 
-Restart policies: `Always` (default), `OnFailure`, `Never`.
-
 Ejemplo YAML: [pod-restart-policy.yaml](./pods/04/demos/pod-restart-policy.yaml)
 
 ---
 
 ## Probes
 
-Tipos: `livenessProbe`, `readinessProbe`, `startupProbe`.
+Conceptos clave:
+- **livenessProbe**: verifica si el contenedor esta vivo. Si falla, Kubernetes **reinicia** el contenedor
+- **readinessProbe**: verifica si el contenedor esta listo para recibir trafico. Si falla, se **remueve de los endpoints** del Service
+- **startupProbe**: se ejecuta **antes** que liveness y readiness. Util para aplicaciones con inicio lento
+- Parametros importantes: `initialDelaySeconds`, `periodSeconds`, `failureThreshold`
+- Si el startup probe falla, liveness y readiness **no se ejecutan**
 
 ```bash
 # Crear deployment con probes

@@ -16,6 +16,12 @@ Comandos para gestionar controllers, deployments, replicasets, daemonsets, jobs 
 
 ## Deployments
 
+Conceptos clave:
+- Un Deployment gestiona **ReplicaSets**, que a su vez gestionan **Pods**
+- **Imperativo**: rapido para pruebas (`kubectl create deployment`)
+- **Declarativo**: recomendado para produccion (`kubectl apply -f`). El estado deseado vive en codigo (YAML)
+- El Deployment mantiene el **estado deseado**: si un Pod muere, el ReplicaSet lo recrea
+
 ```bash
 # Crear deployment imperativamente
 kubectl create deployment hello-world --image=hello-app:1.0
@@ -53,6 +59,13 @@ Ejemplo YAML: [deployment.yaml](./02/demos/deployment.yaml), [deployment-me.yaml
 ---
 
 ## ReplicaSets
+
+Conceptos clave:
+- El ReplicaSet garantiza que el **numero deseado de Pods** este siempre corriendo
+- Usa **label selectors** para identificar que Pods le pertenecen
+- Cada ReplicaSet tiene un `pod-template-hash` unico que asocia los Pods a esa revision
+- **Self-healing**: si se elimina un Pod, el ReplicaSet crea uno nuevo automaticamente
+- Aislar un Pod (cambiar su label) es util para **debugging en produccion** sin afectar el servicio
 
 ```bash
 # Ver replicasets
@@ -97,6 +110,15 @@ Ejemplo YAML: [ReplicaSet.yaml](./02/demos/ReplicaSet.yaml), [ReplicaSet-matchEx
 ---
 
 ## Rollouts y Rollbacks
+
+Conceptos clave:
+- Un rollout crea un **nuevo ReplicaSet** y migra Pods del antiguo al nuevo gradualmente
+- Ambos ReplicaSets se conservan (el antiguo con 0 replicas) para permitir rollback
+- `kubectl rollout status` retorna exit code 0 si completo, 1 si fallo
+- `--record` anota el comando en el historial de revisiones (deprecado en versiones recientes)
+- `maxUnavailable`: pods que pueden estar offline durante el update (default 25%)
+- `maxSurge`: pods adicionales permitidos sobre el deseado (default 25%)
+- `progressDeadlineSeconds`: tiempo antes de marcar como fallido (default 10min)
 
 ```bash
 # Aplicar nueva version
@@ -155,6 +177,11 @@ Ejemplo YAML: [deployment.yaml](./03/demos/deployment.yaml), [deployment.v2.yaml
 
 ## Scaling
 
+Conceptos clave:
+- Escalar modifica el numero de replicas en el ReplicaSet del Deployment
+- **Imperativo**: `kubectl scale` para cambios rapidos
+- **Declarativo**: modificar `spec.replicas` en el YAML y aplicar con `kubectl apply`
+
 ```bash
 # Escalar imperativamente
 kubectl scale deployment hello-world --replicas=10
@@ -175,7 +202,12 @@ Ejemplo YAML: [deployment.20replicas.yaml](./03/demos/deployment.20replicas.yaml
 
 ## DaemonSets
 
-Ejecutan un pod en cada nodo del cluster (excepto control plane por defecto).
+Conceptos clave:
+- Ejecutan **exactamente un Pod por nodo** (excepto control plane por defecto)
+- Al agregar un nodo al cluster, el DaemonSet **automaticamente** despliega un Pod en el
+- Usos comunes: monitoreo, logging, networking (kube-proxy, CNI plugins)
+- Se pueden restringir a nodos especificos con `nodeSelector`
+- Los updates usan `rollingUpdate` con `maxUnavailable` (default 1), mas lento que Deployments
 
 ```bash
 # Ver daemonsets del sistema
@@ -236,7 +268,12 @@ Ejemplo YAML: [DaemonSet.yaml](./04/demos/DaemonSet.yaml), [DaemonSetWithNodeSel
 
 ## Jobs
 
-Ejecutan tareas hasta completarse. Requieren `restartPolicy: OnFailure` o `Never`.
+Conceptos clave:
+- Un Job ejecuta un Pod hasta **completarse exitosamente** (exit code 0)
+- Requiere `restartPolicy: OnFailure` o `Never` (no soporta `Always`)
+- `backoffLimit` define el numero maximo de reintentos antes de marcar el Job como fallido
+- Con `Never`, los Pods fallidos **se conservan** para inspeccion. Con `OnFailure`, el contenedor se reinicia en el mismo Pod
+- Jobs en paralelo: `parallelism` define cuantos Pods corren simultaneamente, `completions` el total
 
 ```bash
 # Crear job
@@ -287,6 +324,12 @@ Ejemplo YAML: [job.yaml](./04/demos/job.yaml), [ParallelJob.yaml](./04/demos/Par
 ---
 
 ## CronJobs
+
+Conceptos clave:
+- Ejecutan Jobs en un **schedule** tipo cron (ej: `*/1 * * * *` = cada minuto)
+- `concurrencyPolicy`: `Allow` (default), `Forbid` (no ejecutar si el anterior no termino), `Replace`
+- `successfulJobsHistoryLimit` (default 3): cuantos Jobs completados se conservan
+- `startingDeadlineSeconds`: tiempo maximo para iniciar el Job despues de su hora programada
 
 ```bash
 # Crear cronjob

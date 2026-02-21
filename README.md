@@ -38,6 +38,12 @@ Cada seccion tiene su propio README con mas detalle:
 
 Informacion del cluster, contextos y descubrimiento de la API.
 
+Conceptos clave:
+- El **API Server** es la unica forma de interactuar con el cluster. Es una arquitectura cliente/servidor RESTful sobre HTTP/HTTPS usando JSON
+- El API Server es **stateless**: los cambios se persisten en **etcd**, no en el API Server
+- Los objetos de la API se organizan por **Kind** (Pod, Deployment, Service), **API Group** (core, apps, storage) y **API Version** (v1, v1beta1)
+- Un request pasa por: Connection -> Authentication -> Authorization -> Admission Control -> Persist to etcd
+
 ```bash
 # Ver contextos configurados
 kubectl config get-contexts
@@ -70,6 +76,10 @@ kubectl explain deployment --api-version apps/v1 | more
 
 ### dry-run
 
+Conceptos clave:
+- **server-side**: el request se procesa completo pero no se persiste en etcd. Detecta errores de validacion y conflictos
+- **client-side**: valida solo la sintaxis del manifiesto sin enviarlo al API Server. Util para generar YAML
+
 Validar manifiestos sin aplicarlos.
 
 ```bash
@@ -91,12 +101,18 @@ kubectl create deployment nginx --image=nginx --dry-run=client -o yaml > deploym
 
 ### diff
 
+Compara el estado actual de un recurso en el cluster contra lo definido en un manifiesto local.
+
 ```bash
 # Comparar manifiesto local contra lo que esta en el cluster
 kubectl diff -f deployment-new.yaml
 ```
 
 ### proxy y verbosity
+
+Conceptos clave:
+- `kubectl proxy` crea una conexion autenticada al API Server en localhost, permitiendo usar `curl` u otros clientes HTTP
+- Los niveles de verbosity (-v 6 a -v 9) muestran progresivamente mas detalle de la comunicacion HTTP con el API Server
 
 ```bash
 # Iniciar proxy al API Server
@@ -113,6 +129,13 @@ kubectl get pod hello-world -v 9   # + response body completo
 ---
 
 ## Namespaces
+
+Conceptos clave:
+- Un namespace es una **subdivision logica** del cluster que provee aislamiento de recursos, seguridad (RBAC) y naming
+- Un recurso solo puede estar en **un namespace** a la vez
+- Los namespaces por defecto son: `default`, `kube-system` (pods del sistema), `kube-public` (recursos compartidos)
+- Recursos como Pods, Deployments y Services **son namespaced**. Recursos como Nodes y PersistentVolumes **no lo son**
+- Eliminar un namespace **elimina todos sus recursos**
 
 ```bash
 # Listar namespaces
@@ -157,6 +180,13 @@ Ejemplo YAML: [namespace.yaml](./1%20-%20Kubernetes%20api%20and%20pods/namespace
 ---
 
 ## Labels y Selectors
+
+Conceptos clave:
+- Un label es un **par key/value** no jerarquico asociado a cualquier recurso (keys <= 63 chars, values <= 253 chars)
+- Un recurso puede tener **multiples labels**
+- Los **selectors** permiten filtrar y operar sobre colecciones de recursos
+- Kubernetes usa labels internamente para: asociar Pods a ReplicaSets, registrar endpoints en Services, y programar Pods en Nodes
+- Cambiar el label de un Pod lo **desasocia** de su ReplicaSet/Service (util para debugging en produccion)
 
 ```bash
 # Ver labels de todos los pods
@@ -208,6 +238,13 @@ Ejemplo YAML: [CreatePodsWithLabels.yaml](./1%20-%20Kubernetes%20api%20and%20pod
 
 ## Pods
 
+Conceptos clave:
+- El Pod es la **unidad minima de scheduling y deployment** en Kubernetes
+- Un Pod encapsula: contenedor(es), almacenamiento, red y configuracion
+- Generalmente se ejecuta **un proceso por contenedor, un contenedor por Pod**
+- No se recomienda ejecutar Pods "desnudos" (sin controller). Si el nodo falla, el Pod no se recrea
+- `kubectl port-forward` permite acceso directo al Pod sin necesidad de un Service
+
 ```bash
 # Crear pod desde YAML
 kubectl apply -f pod.yaml
@@ -242,6 +279,12 @@ kubectl delete -f pod.yaml
 
 ### Static Pods
 
+Conceptos clave:
+- Los Static Pods son gestionados directamente por el **kubelet** de un nodo, no por el API Server
+- Se definen colocando manifiestos YAML en el `staticPodPath` del nodo (tipicamente `/etc/kubernetes/manifests/`)
+- No se pueden eliminar con `kubectl delete`; hay que remover el manifiesto del nodo
+- Los componentes del control plane (etcd, kube-apiserver, etc.) se ejecutan como Static Pods
+
 ```bash
 # Generar manifiesto para static pod
 kubectl run hello-world --image=hello-app:2.0 --dry-run=client -o yaml --port=8080
@@ -261,6 +304,11 @@ Ejemplo YAML: [pod.yaml](./1%20-%20Kubernetes%20api%20and%20pods/pods/04/demos/p
 ---
 
 ## Multi-container Pods
+
+Conceptos clave:
+- Multiples contenedores en un Pod comparten la **misma red (localhost)** y pueden compartir **volumenes**
+- Patron comun: **producer/consumer** donde un contenedor escribe datos y otro los consume
+- Si no se especifica `--container`, `kubectl exec` accede al **primer contenedor** del Pod
 
 ```bash
 # Crear multi-container pod
@@ -282,7 +330,10 @@ Ejemplo YAML: [multicontainer-pod.yaml](./1%20-%20Kubernetes%20api%20and%20pods/
 
 ## Init Containers
 
-Los init containers se ejecutan en serie hasta completarse antes de que inicie el contenedor principal.
+Conceptos clave:
+- Se ejecutan **en serie** y deben completarse exitosamente antes de que inicie el contenedor principal
+- Utiles para: descargar dependencias, esperar a que un servicio este disponible, configurar permisos
+- Si un init container falla, Kubernetes reinicia el Pod segun la restart policy
 
 ```bash
 # Crear pod con init containers
@@ -301,6 +352,13 @@ Ejemplo YAML: [init-containers.yaml](./1%20-%20Kubernetes%20api%20and%20pods/pod
 
 ## Pod Lifecycle
 
+Conceptos clave:
+- `Always` (default): reinicia el contenedor siempre. Usado en aplicaciones de larga duracion (web servers)
+- `OnFailure`: reinicia solo si el contenedor termina con exit code != 0. Usado en Jobs
+- `Never`: no reinicia. Util para tareas que solo deben ejecutarse una vez
+- Al reiniciar, Kubernetes aplica **exponential backoff** (10s, 20s, 40s... hasta 5min)
+- El campo `Restart Count` en `kubectl get pods` muestra cuantas veces se ha reiniciado el contenedor
+
 ```bash
 # Ver restart policy de un pod
 kubectl explain pods.spec.restartPolicy
@@ -318,15 +376,18 @@ kubectl get pods
 kubectl describe pod hello-world-pod
 ```
 
-Restart policies: `Always` (default), `OnFailure`, `Never`.
-
 Ejemplo YAML: [pod-restart-policy.yaml](./1%20-%20Kubernetes%20api%20and%20pods/pods/04/demos/pod-restart-policy.yaml)
 
 ---
 
 ## Probes
 
-Tipos: `livenessProbe`, `readinessProbe`, `startupProbe`.
+Conceptos clave:
+- **livenessProbe**: verifica si el contenedor esta vivo. Si falla, Kubernetes **reinicia** el contenedor
+- **readinessProbe**: verifica si el contenedor esta listo para recibir trafico. Si falla, se **remueve de los endpoints** del Service
+- **startupProbe**: se ejecuta **antes** que liveness y readiness. Util para aplicaciones con inicio lento
+- Parametros importantes: `initialDelaySeconds`, `periodSeconds`, `failureThreshold`
+- Si el startup probe falla, liveness y readiness **no se ejecutan**
 
 ```bash
 # Crear deployment con probes
@@ -347,6 +408,12 @@ Ejemplo YAML: [container-probes.yaml](./1%20-%20Kubernetes%20api%20and%20pods/po
 ---
 
 ## Deployments
+
+Conceptos clave:
+- Un Deployment gestiona **ReplicaSets**, que a su vez gestionan **Pods**
+- **Imperativo**: rapido para pruebas (`kubectl create deployment`)
+- **Declarativo**: recomendado para produccion (`kubectl apply -f`). El estado deseado vive en codigo (YAML)
+- El Deployment mantiene el **estado deseado**: si un Pod muere, el ReplicaSet lo recrea
 
 ```bash
 # Crear deployment imperativamente
@@ -376,6 +443,13 @@ Ejemplo YAML: [deployment.yaml](./2%20-%20managing-kubernetes-controllers-deploy
 
 ## ReplicaSets
 
+Conceptos clave:
+- El ReplicaSet garantiza que el **numero deseado de Pods** este siempre corriendo
+- Usa **label selectors** para identificar que Pods le pertenecen
+- Cada ReplicaSet tiene un `pod-template-hash` unico que asocia los Pods a esa revision
+- **Self-healing**: si se elimina un Pod, el ReplicaSet crea uno nuevo automaticamente
+- Aislar un Pod (cambiar su label) es util para **debugging en produccion** sin afectar el servicio
+
 ```bash
 # Ver replicasets
 kubectl get replicasets
@@ -399,6 +473,12 @@ Ejemplo YAML: [ReplicaSet.yaml](./2%20-%20managing-kubernetes-controllers-deploy
 ---
 
 ## Rollouts y Rollbacks
+
+Conceptos clave:
+- Un rollout crea un **nuevo ReplicaSet** y migra Pods del antiguo al nuevo gradualmente
+- Ambos ReplicaSets se conservan (el antiguo con 0 replicas) para permitir rollback
+- `kubectl rollout status` retorna exit code 0 si completo, 1 si fallo
+- `--record` anota el comando en el historial de revisiones (deprecado en versiones recientes)
 
 ```bash
 # Aplicar nueva version
@@ -432,6 +512,11 @@ Conceptos clave:
 
 ## Scaling
 
+Conceptos clave:
+- Escalar modifica el numero de replicas en el ReplicaSet del Deployment
+- **Imperativo**: `kubectl scale` para cambios rapidos
+- **Declarativo**: modificar `spec.replicas` en el YAML y aplicar con `kubectl apply`
+
 ```bash
 # Escalar imperativamente
 kubectl scale deployment hello-world --replicas=10
@@ -444,7 +529,12 @@ kubectl apply -f deployment.20replicas.yaml
 
 ## DaemonSets
 
-Ejecutan un pod en cada nodo del cluster.
+Conceptos clave:
+- Ejecutan **exactamente un Pod por nodo** (excepto control plane por defecto)
+- Al agregar un nodo al cluster, el DaemonSet **automaticamente** despliega un Pod en el
+- Usos comunes: monitoreo, logging, networking (kube-proxy, CNI plugins)
+- Se pueden restringir a nodos especificos con `nodeSelector`
+- Los updates usan `rollingUpdate` con `maxUnavailable` (default 1), mas lento que Deployments
 
 ```bash
 # Ver daemonsets del sistema
@@ -480,6 +570,13 @@ Ejemplo YAML: [DaemonSet.yaml](./2%20-%20managing-kubernetes-controllers-deploym
 
 ### Jobs
 
+Conceptos clave:
+- Un Job ejecuta un Pod hasta **completarse exitosamente** (exit code 0)
+- Requiere `restartPolicy: OnFailure` o `Never` (no soporta `Always`)
+- `backoffLimit` define el numero maximo de reintentos antes de marcar el Job como fallido
+- Con `Never`, los Pods fallidos **se conservan** para inspeccion. Con `OnFailure`, el contenedor se reinicia en el mismo Pod
+- Jobs en paralelo: `parallelism` define cuantos Pods corren simultaneamente, `completions` el total
+
 ```bash
 # Crear job
 kubectl apply -f job.yaml
@@ -501,6 +598,12 @@ kubectl delete job hello-world-job
 ```
 
 ### CronJobs
+
+Conceptos clave:
+- Ejecutan Jobs en un **schedule** tipo cron (ej: `*/1 * * * *` = cada minuto)
+- `concurrencyPolicy`: `Allow` (default), `Forbid` (no ejecutar si el anterior no termino), `Replace`
+- `successfulJobsHistoryLimit` (default 3): cuantos Jobs completados se conservan
+- `startingDeadlineSeconds`: tiempo maximo para iniciar el Job despues de su hora programada
 
 ```bash
 # Crear cronjob
@@ -525,7 +628,13 @@ Ejemplo YAML: [job.yaml](./2%20-%20managing-kubernetes-controllers-deployments/0
 
 ## Networking
 
-Investigar la red del cluster (pod network, interfaces, rutas).
+Conceptos clave:
+- Cada Pod recibe su **propia IP** en la Pod Network (ej: 192.168.0.0/16)
+- Los Pods se comunican entre si **directamente por IP**, sin NAT
+- El **CNI plugin** (Calico, kubenet, etc.) implementa la red entre nodos
+- **Calico** usa tuneles (tunl0/IPIP) para comunicacion entre nodos
+- **kubenet** (AKS) usa bridges (cbr0) y route tables del cloud provider
+- Cada nodo tiene un **PodCIDR** que define el rango de IPs para sus Pods
 
 ```bash
 # Ver IPs de los nodos
@@ -551,7 +660,13 @@ kubectl debug node/$NODENAME -it --image=mcr.microsoft.com/aks/fundamental/base-
 
 ## DNS
 
-CoreDNS en el cluster.
+Conceptos clave:
+- **CoreDNS** es el servidor DNS del cluster, desplegado como Deployment en `kube-system`
+- Cada Service recibe un **registro A**: `<service>.<namespace>.svc.cluster.local`
+- Cada Pod recibe un **registro A**: `<ip-con-dashes>.<namespace>.pod.cluster.local`
+- La configuracion de CoreDNS se almacena en un **ConfigMap** en `kube-system`
+- El forwarder por defecto es `/etc/resolv.conf` del nodo (se puede customizar)
+- Los cambios al ConfigMap se recargan automaticamente (puede tardar 1-2 minutos)
 
 ```bash
 # Ver servicio DNS del cluster
@@ -590,7 +705,16 @@ Ejemplo YAML: [CoreDNSConfigCustom.yaml](./3%20-%20configuring-managing-kubernet
 
 ## Services
 
+Conceptos clave:
+- Un Service provee un **punto de acceso estable** (IP fija + DNS) para un conjunto de Pods
+- Los Pods backend se determinan por **label selectors**
+- El trafico fluye: **LoadBalancer -> NodePort -> ClusterIP -> Pod**
+- Los **endpoints** son las IPs de los Pods que matchean el selector del Service
+- Al escalar un Deployment, los nuevos Pods se registran automaticamente como endpoints
+
 ### ClusterIP
+
+Accesible **solo dentro del cluster**. Es el tipo por defecto.
 
 ```bash
 # Crear servicio ClusterIP imperativamente
@@ -614,6 +738,8 @@ kubectl describe service hello-world
 
 ### NodePort
 
+Expone el servicio en un **puerto estatico en cada nodo** (rango 30000-32767). Accesible desde fuera del cluster.
+
 ```bash
 # Crear servicio NodePort
 kubectl expose deployment hello-world --port=80 --target-port=8080 --type NodePort
@@ -626,6 +752,8 @@ curl http://c1-node1:$NODEPORT
 ```
 
 ### LoadBalancer
+
+Provisiona un **balanceador de carga externo** del cloud provider con IP publica. Solo disponible en cloud (AKS, GKE, EKS).
 
 ```bash
 # Crear servicio LoadBalancer (solo en cloud)
@@ -641,6 +769,11 @@ Ejemplo YAML: [service-hello-world-clusterip.yaml](./3%20-%20configuring-managin
 ---
 
 ## Service Discovery
+
+Conceptos clave:
+- Formato DNS: `<service>.<namespace>.svc.cluster.local`
+- **DNS** es el metodo recomendado. Las **variables de entorno** solo estan disponibles si el Service existia antes de crear el Pod
+- **ExternalName**: crea un CNAME que apunta a un dominio externo (no tiene ClusterIP ni endpoints)
 
 ```bash
 # Formato del registro DNS de un servicio
@@ -663,6 +796,13 @@ Ejemplo YAML: [service-externalname.yaml](./3%20-%20configuring-managing-kuberne
 ---
 
 ## Ingress
+
+Conceptos clave:
+- Ingress **no funciona sin un Ingress Controller** instalado (nginx, traefik, HAProxy, etc.)
+- El Ingress Controller es un Pod que implementa las reglas de Ingress y rutea trafico HTTP/HTTPS
+- El trafico va **directo del Ingress Controller al Pod**, sin pasar por kube-proxy
+- Se pueden definir reglas por **path**, por **hostname** (virtual hosts), o ambos
+- Soporta **TLS termination** usando Secrets de tipo TLS
 
 ### Ingress Controller
 

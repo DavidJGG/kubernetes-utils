@@ -20,6 +20,14 @@ Comandos para networking, DNS, services, service discovery e ingress en Kubernet
 
 ## Networking
 
+Conceptos clave:
+- Cada Pod recibe su **propia IP** en la Pod Network (ej: 192.168.0.0/16)
+- Los Pods se comunican entre si **directamente por IP**, sin NAT
+- El **CNI plugin** (Calico, kubenet, etc.) implementa la red entre nodos
+- **Calico** usa tuneles (tunl0/IPIP) para comunicacion entre nodos
+- **kubenet** (AKS) usa bridges (cbr0) y route tables del cloud provider
+- Cada nodo tiene un **PodCIDR** que define el rango de IPs para sus Pods
+
 Investigar la red del cluster (pod network, interfaces, rutas, tuneles).
 
 ```bash
@@ -71,6 +79,14 @@ Ejemplo YAML: [Deployment.yaml](./02/demos/Deployment.yaml)
 ---
 
 ## DNS
+
+Conceptos clave:
+- **CoreDNS** es el servidor DNS del cluster, desplegado como Deployment en `kube-system`
+- Cada Service recibe un **registro A**: `<service>.<namespace>.svc.cluster.local`
+- Cada Pod recibe un **registro A**: `<ip-con-dashes>.<namespace>.pod.cluster.local`
+- La configuracion de CoreDNS se almacena en un **ConfigMap** en `kube-system`
+- El forwarder por defecto es `/etc/resolv.conf` del nodo (se puede customizar)
+- Los cambios al ConfigMap se recargan automaticamente (puede tardar 1-2 minutos)
 
 CoreDNS en el cluster.
 
@@ -143,9 +159,16 @@ Ejemplo YAML: [CoreDNSConfigCustom.yaml](./02/demos/CoreDNSConfigCustom.yaml), [
 
 ## Services
 
+Conceptos clave:
+- Un Service provee un **punto de acceso estable** (IP fija + DNS) para un conjunto de Pods
+- Los Pods backend se determinan por **label selectors**
+- El trafico fluye: **LoadBalancer -> NodePort -> ClusterIP -> Pod**
+- Los **endpoints** son las IPs de los Pods que matchean el selector del Service
+- Al escalar un Deployment, los nuevos Pods se registran automaticamente como endpoints
+
 ### ClusterIP
 
-Accesible solo dentro del cluster.
+Accesible **solo dentro del cluster**. Es el tipo por defecto.
 
 ```bash
 # Crear deployment y servicio ClusterIP
@@ -179,7 +202,7 @@ kubectl get pods --show-labels
 
 ### NodePort
 
-Accesible desde fuera del cluster en el puerto del nodo.
+Expone el servicio en un **puerto estatico en cada nodo** (rango 30000-32767). Accesible desde fuera del cluster.
 
 ```bash
 # Crear deployment y servicio NodePort
@@ -201,7 +224,7 @@ curl http://$CLUSTERIP:$PORT
 
 ### LoadBalancer
 
-Accesible con IP publica (solo en cloud).
+Provisiona un **balanceador de carga externo** del cloud provider con IP publica. Solo disponible en cloud (AKS, GKE, EKS).
 
 ```bash
 # Cambiar contexto a cloud
@@ -224,6 +247,11 @@ Ejemplo YAML: [service-hello-world-clusterip.yaml](./03/demos/service-hello-worl
 ---
 
 ## Service Discovery
+
+Conceptos clave:
+- Formato DNS: `<service>.<namespace>.svc.cluster.local`
+- **DNS** es el metodo recomendado. Las **variables de entorno** solo estan disponibles si el Service existia antes de crear el Pod
+- **ExternalName**: crea un CNAME que apunta a un dominio externo (no tiene ClusterIP ni endpoints)
 
 ```bash
 # Formato DNS de un servicio: <service>.<namespace>.svc.<clusterdomain>
@@ -249,6 +277,13 @@ Ejemplo YAML: [service-externalname.yaml](./03/demos/service-externalname.yaml)
 ---
 
 ## Ingress
+
+Conceptos clave:
+- Ingress **no funciona sin un Ingress Controller** instalado (nginx, traefik, HAProxy, etc.)
+- El Ingress Controller es un Pod que implementa las reglas de Ingress y rutea trafico HTTP/HTTPS
+- El trafico va **directo del Ingress Controller al Pod**, sin pasar por kube-proxy
+- Se pueden definir reglas por **path**, por **hostname** (virtual hosts), o ambos
+- Soporta **TLS termination** usando Secrets de tipo TLS
 
 ### Ingress Controller
 
