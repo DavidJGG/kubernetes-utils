@@ -1,0 +1,5 @@
+ARG BASE_IMAGE=sixeyed/wiredbrain-web:25-m1
+FROM ${BASE_IMAGE}
+
+ENTRYPOINT ["sh"]
+CMD ["ls", "/app/secrets"]

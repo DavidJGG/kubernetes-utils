@@ -1,0 +1,4 @@
+ARG BASE_IMAGE=sixeyed/wiredbrain-web:25-m1
+FROM ${BASE_IMAGE}
+
+COPY v2/site.css /app/wwwroot/css/

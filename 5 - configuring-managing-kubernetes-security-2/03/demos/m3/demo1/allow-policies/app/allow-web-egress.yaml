@@ -1,0 +1,29 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-web-egress
+  namespace: wiredbrain
+spec:
+  # Apply to web-app pods
+  podSelector:
+    matchLabels:
+      component: web-app
+  policyTypes:
+  - Egress
+  egress:
+  # Allow egress to products-api on port 80
+  - to:
+    - podSelector:
+        matchLabels:
+          component: products-api
+    ports:
+    - protocol: TCP
+      port: 80
+  # Allow egress to stock-api on port 8080
+  - to:
+    - podSelector:
+        matchLabels:
+          component: stock-api
+    ports:
+    - protocol: TCP
+      port: 8080

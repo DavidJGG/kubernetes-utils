@@ -1,0 +1,46 @@
+﻿@model ProductViewModel
+@{
+    ViewData["Title"] = "Products";
+}
+
+@if (ViewData["Environment"] != null)
+{
+    <div class="clearfix" style="background-color: aquamarine">
+        <div class="float-right">
+            <h1>@ViewData["Environment"]</h1>
+        </div>
+    </div>
+}
+
+<img src="~/img/logo.png" class="mx-auto d-block" />
+
+@if (!string.IsNullOrEmpty(@Model.ErrorMessage))
+{
+    <div class="alert alert-warning" role="alert">
+        @Model.ErrorMessage
+    </div>
+}
+else if (@Model.Products == null)
+{
+    <p><em>Loading...</em></p>
+}
+else
+{
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Your coffee</th>
+                <th>Just</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var product in @Model.Products)
+            {
+                <tr>
+                    <td>@product.Name</td>
+                    <td>@product.DisplayPrice</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}

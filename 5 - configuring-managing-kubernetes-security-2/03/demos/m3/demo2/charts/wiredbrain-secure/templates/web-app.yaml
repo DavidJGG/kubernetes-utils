@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "wiredbrain.fullname" . }}-web
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "wiredbrain.labels" . | nindent 4 }}
+    component: web-app
+spec:
+  replicas: {{ .Values.replicaCount.web }}
+  selector:
+    matchLabels:
+      {{- include "wiredbrain.selectorLabels" . | nindent 6 }}
+      component: web-app
+  template:
+    metadata:
+      labels:
+        {{- include "wiredbrain.selectorLabels" . | nindent 8 }}
+        component: web-app
+    spec:
+      containers:
+      - name: web
+        image: {{ include "wiredbrain.image" (dict "root" . "image" .Values.image.web) }}
+        ports:
+        - containerPort: 8080
+        env:
+        - name: ProductsApi__Url
+          value: "http://products-api:8080/products"
+        - name: StockApi__Url
+          value: "http://stock-api:8080/stock"
+        - name: ASPNETCORE_URLS
+          value: "http://+:8080"
+        - name: environment
+          value: {{ .Values.environment | quote }}
+        resources:
+          {{- toYaml .Values.resources.web | nindent 10 }}
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-app
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "wiredbrain.labels" . | nindent 4 }}
+    component: web-app
+spec:
+  selector:
+    {{- include "wiredbrain.selectorLabels" . | nindent 4 }}
+    component: web-app
+  ports:
+  - port: {{ .Values.service.web.port }}
+    targetPort: {{ .Values.service.web.targetPort }}
+  type: {{ .Values.service.web.type }}

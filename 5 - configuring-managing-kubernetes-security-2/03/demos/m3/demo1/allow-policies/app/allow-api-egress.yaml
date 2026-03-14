@@ -1,0 +1,43 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-products-api-egress
+  namespace: wiredbrain
+spec:
+  # Apply to products-api pods
+  podSelector:
+    matchLabels:
+      component: products-api
+  policyTypes:
+  - Egress
+  egress:
+  # Allow egress to database pods on port 5432
+  - to:
+    - podSelector:
+        matchLabels:
+          component: database
+    ports:
+    - protocol: TCP
+      port: 5432
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-stock-api-egress
+  namespace: wiredbrain
+spec:
+  # Apply to stock-api pods
+  podSelector:
+    matchLabels:
+      component: stock-api
+  policyTypes:
+  - Egress
+  egress:
+  # Allow egress to database pods on port 5432
+  - to:
+    - podSelector:
+        matchLabels:
+          component: database
+    ports:
+    - protocol: TCP
+      port: 5432

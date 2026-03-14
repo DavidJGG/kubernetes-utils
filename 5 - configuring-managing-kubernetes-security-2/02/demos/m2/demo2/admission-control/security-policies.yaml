@@ -1,0 +1,64 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: container-security-policies
+  annotations:
+    policies.kyverno.io/title: Container Security Policies
+    policies.kyverno.io/category: Security
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/description: >-
+      Enforces container security best practices including registry restrictions
+      and running as non-root.
+spec:
+  validationFailureAction: Enforce
+  background: false
+  rules:
+
+  # Rule 1: Only allow images from ghcr.io/wiredbrain/ registry
+  - name: restrict-image-registries
+    match:
+      any:
+      - resources:
+          kinds:
+          - Pod
+          - Deployment
+          - StatefulSet
+          - DaemonSet
+          - Job
+          - CronJob
+    validate:
+      message: >-
+        ***
+        Images must be pulled from the approved registry: ghcr.io/wiredbrain/
+        Unauthorized registry detected. Please use images from ghcr.io/wiredbrain/ only.
+      deny:
+        conditions:
+          any:
+          - key: "{{ request.object.spec.containers[].image || request.object.spec.template.spec.containers[].image }}"
+            operator: AnyNotIn
+            value:
+            - "ghcr.io/wiredbrain/*"
+
+  # Rule 2: Require containers to run as non-root
+  - name: require-non-root
+    match:
+      any:
+      - resources:
+          kinds:
+          - Pod
+          - Deployment
+          - StatefulSet
+          - DaemonSet
+          - Job
+          - CronJob
+    validate:
+      message: >-
+        ***
+        Containers must run as non-root user for security.
+        Set securityContext.runAsNonRoot: true in the pod spec.
+      deny:
+        conditions:
+          any:
+          - key: "{{ request.object.spec.securityContext.runAsNonRoot || request.object.spec.template.spec.securityContext.runAsNonRoot || `false` }}"
+            operator: NotEquals
+            value: true

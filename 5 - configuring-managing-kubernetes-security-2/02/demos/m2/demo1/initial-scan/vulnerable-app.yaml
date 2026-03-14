@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: products-api-vulnerable
+  namespace: wiredbrain
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: products-api
+      version: vulnerable
+  template:
+    metadata:
+      labels:
+        app: products-api
+        version: vulnerable
+    spec:
+      containers:
+      - name: api
+        # This image contains CRITICAL CVE-2025-24813 in Apache Tomcat
+        # Policy will block this deployment
+        image: sixeyed/wiredbrain-products-api-bad:k8s-security-m2
+        command: ["sleep", "infinity"]

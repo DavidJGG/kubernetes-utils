@@ -1,0 +1,28 @@
+services:
+  kube-explorer:
+    image: sixeyed/kube-explorer:k8s-security-m1
+    build:
+      context: kube-explorer
+
+  products-api-bad:
+    image: sixeyed/wiredbrain-products-api-bad:k8s-security-m2
+    build:
+      context: products-api
+      dockerfile: Dockerfile.bad
+
+  products-api-good:
+    image: sixeyed/wiredbrain-products-api:k8s-security-m2
+    build:
+      context: products-api
+
+  products-api-bad-ghcr:
+    image: ghcr.io/wiredbrain/products-api-bad:k8s-security-m2
+    build:
+      context: products-api
+      dockerfile: Dockerfile.bad
+      
+  products-api-ghcr:
+    image: ghcr.io/wiredbrain/products-api:k8s-security-m2
+    build:
+      context: products-api
+

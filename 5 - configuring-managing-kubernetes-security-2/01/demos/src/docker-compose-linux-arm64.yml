@@ -1,0 +1,16 @@
+services:
+  kube-explorer:
+    image: sixeyed/kube-explorer:k8s-security-m1-linux-arm64
+
+  products-api-bad:
+    image: sixeyed/wiredbrain-products-api-bad:k8s-security-m2-linux-arm64
+
+  products-api-good:
+    image: sixeyed/wiredbrain-products-api:k8s-security-m2-linux-arm64
+
+  products-api-bad-ghcr:
+    image: ghcr.io/wiredbrain/products-api-bad:k8s-security-m2-linux-arm64
+      
+  products-api-ghcr:
+    image: ghcr.io/wiredbrain/products-api:k8s-security-m2-linux-arm64
+

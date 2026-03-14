@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kube-explorer
+  namespace: default
+  labels:
+    wiredbrain: kube-explorer
+spec:
+  selector:
+    matchLabels:
+      app: kube-explorer
+  template:
+    metadata:
+      labels:
+        app: kube-explorer
+    spec:
+      containers:
+        - image: sixeyed/kube-explorer:k8s-security-m1
+          name: web
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+          - name: ASPNETCORE_ENVIRONMENT
+            value: Development

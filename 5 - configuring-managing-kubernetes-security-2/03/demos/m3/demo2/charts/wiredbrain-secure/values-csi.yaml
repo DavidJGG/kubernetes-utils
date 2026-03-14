@@ -1,0 +1,16 @@
+# Azure Key Vault configuration
+# Update these values to match your Azure environment
+azure:
+  keyVaultName: "psod-kv-m3d2"  # From setup.ps1
+  tenantId: "68c58dc9-c7db-440f-8c32-ac672250d642"     # Run: az account show --query tenantId -o tsv
+  clientId: "74ab8fe4-c274-4cb4-936a-aef1cffd7992"     # Run: az identity show -g psod-k8s-security-rg -n wiredbrain-identity --query clientId -o tsv
+
+# CSI Driver configuration
+database:
+  secretProviderClass: "postgres-keyvault"
+
+# Key Vault secret names (mounted as files, not synced to Kubernetes Secrets)
+secrets:
+  postgresPassword: "postgres-password"
+  dbConnectionString: "db-connection-string"
+  applicationProperties: "application-properties"

@@ -1,0 +1,23 @@
+FROM maven:3.8 AS build
+
+WORKDIR /build
+COPY . .
+
+RUN mvn package -DskipTests
+
+FROM build
+
+WORKDIR /app
+RUN cp /build/target/products-api-0.1.0.jar app.jar
+
+EXPOSE 8080
+
+# Use JVM flags for container awareness
+ENTRYPOINT ["java", "-jar", "app.jar"]
+
+ARG RELEASE_VERSION=0.1
+ARG BUILD_NUMBER=999
+ARG COMMIT_SHA=dockerfile
+
+LABEL org.opencontainers.image.version=${RELEASE_VERSION}.${BUILD_NUMBER}
+LABEL org.opencontainers.image.revision=${COMMIT_SHA}

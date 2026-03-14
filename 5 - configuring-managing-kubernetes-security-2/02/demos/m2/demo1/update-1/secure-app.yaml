@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: products-api
+  namespace: wb-secure
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: products-api
+      version: secure
+  template:
+    metadata:
+      labels:
+        app: products-api
+        version: secure
+    spec:
+      containers:
+      - name: api
+        # This image has no critical CVEs
+        # Policy will allow this deployment
+        image: sixeyed/wiredbrain-products-api:k8s-security-m2
+        command: ["sleep", "infinity"]

@@ -1,0 +1,43 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-web-to-products-api
+  namespace: wiredbrain
+spec:
+  # Apply to products-api pods
+  podSelector:
+    matchLabels:
+      component: products-api
+  policyTypes:
+  - Ingress
+  ingress:
+  # Allow ingress from web-app pods on port 80
+  - from:
+    - podSelector:
+        matchLabels:
+          component: web-app
+    ports:
+    - protocol: TCP
+      port: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-web-to-stock-api
+  namespace: wiredbrain
+spec:
+  # Apply to stock-api pods
+  podSelector:
+    matchLabels:
+      component: stock-api
+  policyTypes:
+  - Ingress
+  ingress:
+  # Allow ingress from web-app pods on port 8080
+  - from:
+    - podSelector:
+        matchLabels:
+          component: web-app
+    ports:
+    - protocol: TCP
+      port: 8080

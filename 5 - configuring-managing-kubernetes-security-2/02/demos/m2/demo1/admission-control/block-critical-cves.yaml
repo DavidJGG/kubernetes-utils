@@ -1,0 +1,52 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: block-critical-cves
+  annotations:
+    policies.kyverno.io/title: Block Images with Critical CVEs
+    policies.kyverno.io/category: Security
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/description: >-
+      Blocks deployment of container images that have known CRITICAL severity CVEs
+      based on Trivy Operator vulnerability scan results.
+spec:
+  validationFailureAction: Enforce
+  background: false
+  webhookTimeoutSeconds: 30
+  rules:
+  - name: check-vulnerability-reports
+    match:
+      any:
+      - resources:
+          kinds:
+          - Pod
+          - Deployment
+          - StatefulSet
+          - DaemonSet
+          - Job
+          - CronJob
+    preconditions:
+      all:
+      - key: "{{ request.operation || 'CREATE' }}"
+        operator: AnyIn
+        value:
+        - CREATE
+        - UPDATE
+    context:
+    - name: allReports
+      apiCall:
+        urlPath: "/apis/aquasecurity.github.io/v1alpha1/namespaces/{{ request.namespace || 'default' }}/vulnerabilityreports"
+        jmesPath: "items[]"
+    validate:
+      message: >-
+        Image {{ request.object.spec.containers[0].image || request.object.spec.template.spec.containers[0].image }}
+        contains {{ allReports[?report.artifact.repository == '{{ request.object.spec.containers[0].image || request.object.spec.template.spec.containers[0].image | split(@, ':') | [0] }}' && report.artifact.tag == '{{ request.object.spec.containers[0].image || request.object.spec.template.spec.containers[0].image | split(@, ':') | [-1] }}'].report.summary.criticalCount | [0] || '0' }}
+        CRITICAL severity CVEs and is blocked by security policy.
+
+        Please use a patched version of the image with no critical vulnerabilities.
+      deny:
+        conditions:
+          any:
+          - key: "{{ allReports[?report.artifact.repository == '{{ request.object.spec.containers[0].image || request.object.spec.template.spec.containers[0].image | split(@, ':') | [0] }}' && report.artifact.tag == '{{ request.object.spec.containers[0].image || request.object.spec.template.spec.containers[0].image | split(@, ':') | [-1] }}'].report.summary.criticalCount | [0] || `0` }}"
+            operator: GreaterThan
+            value: 0

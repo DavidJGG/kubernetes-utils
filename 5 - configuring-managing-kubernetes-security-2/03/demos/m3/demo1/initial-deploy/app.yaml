@@ -1,0 +1,226 @@
+---
+# Source: wiredbrain/templates/database.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: products-db
+  namespace: wiredbrain
+  labels:
+    app: wiredbrain
+    component: database
+spec:
+  selector:
+    app: wiredbrain
+    component: database
+  ports:
+  - port: 5432
+    targetPort: 5432
+  type: ClusterIP
+---
+# Source: wiredbrain/templates/products-api.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: products-api
+  namespace: wiredbrain
+  labels:
+    app: wiredbrain
+    component: products-api
+spec:
+  selector:
+    app: wiredbrain
+    component: products-api
+  ports:
+  - port: 80
+    targetPort: 80
+  type: ClusterIP
+---
+# Source: wiredbrain/templates/stock-api.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: stock-api
+  namespace: wiredbrain
+  labels:
+    app: wiredbrain
+    component: stock-api
+spec:
+  selector:
+    app: wiredbrain
+    component: stock-api
+  ports:
+  - port: 8080
+    targetPort: 8080
+  type: ClusterIP
+---
+# Source: wiredbrain/templates/web-app.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-app
+  namespace: wiredbrain
+  labels:
+    app: wiredbrain
+    component: web-app
+spec:
+  selector:
+    app: wiredbrain
+    component: web-app
+  ports:
+  - port: 8001
+    targetPort: 8080
+  type: LoadBalancer
+---
+# Source: wiredbrain/templates/database.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wiredbrain-database
+  namespace: wiredbrain
+  labels:
+    app: wiredbrain
+    component: database
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wiredbrain
+      component: database
+  template:
+    metadata:
+      labels:
+        app: wiredbrain
+        component: database
+    spec:
+      containers:
+      - name: postgres
+        image: sixeyed/wiredbrain-products-db:25-m4
+        ports:
+        - containerPort: 5432
+        env:
+        - name: POSTGRES_PASSWORD
+          value: "wired"
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 250m
+            memory: 256Mi
+---
+# Source: wiredbrain/templates/products-api.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wiredbrain-products-api
+  namespace: wiredbrain
+  labels:
+    app: wiredbrain
+    component: products-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wiredbrain
+      component: products-api
+  template:
+    metadata:
+      labels:
+        app: wiredbrain
+        component: products-api
+    spec:
+      containers:
+      - name: api
+        image: sixeyed/wiredbrain-products-api:25-m4
+        ports:
+        - containerPort: 80
+        env:
+        - name: ConnectionStrings__ProductsDb
+          value: "Host=products-db;Database=postgres;Username=postgres;Password=wired"
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+---
+# Source: wiredbrain/templates/stock-api.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wiredbrain-stock-api
+  namespace: wiredbrain
+  labels:
+    app: wiredbrain
+    component: stock-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wiredbrain
+      component: stock-api
+  template:
+    metadata:
+      labels:
+        app: wiredbrain
+        component: stock-api
+    spec:
+      containers:
+      - name: api
+        image: sixeyed/wiredbrain-stock-api:25-m4
+        ports:
+        - containerPort: 8080
+        env:
+        - name: POSTGRES_CONNECTION_STRING
+          value: "host=products-db user=postgres password=wired dbname=postgres sslmode=disable"
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+---
+# Source: wiredbrain/templates/web-app.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wiredbrain-web
+  namespace: wiredbrain
+  labels:
+    app: wiredbrain
+    component: web-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wiredbrain
+      component: web-app
+  template:
+    metadata:
+      labels:
+        app: wiredbrain
+        component: web-app
+    spec:
+      containers:
+      - name: web
+        image: sixeyed/wiredbrain-web:25-m4
+        ports:
+        - containerPort: 8080
+        env:
+        - name: ProductsApi__Url
+          value: "http://products-api/products"
+        - name: StockApi__Url
+          value: "http://stock-api:8080/stock"
+        - name: ASPNETCORE_URLS
+          value: "http://+:8080"
+        - name: environment
+          value: "development"
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi

@@ -1,0 +1,21 @@
+services:
+
+  products-db:
+    image: sixeyed/wiredbrain-products-db:25-k8s-m3
+    build:
+      context: db
+
+  products-api:
+    image: sixeyed/wiredbrain-products-api:25-k8s-m3
+    build:
+      context: products-api
+
+  stock-api:
+    image: sixeyed/wiredbrain-stock-api:25-k8s-m3
+    build:
+      context: stock-api
+  
+  web:
+    image: sixeyed/wiredbrain-web:25-k8s-m3
+    build:
+      context: web

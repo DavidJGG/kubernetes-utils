@@ -1,0 +1,73 @@
+global:
+  imageRegistry: ""
+  imageTag: "25-k8s-m3-linux-amd64"
+  
+replicaCount:
+  web: 1
+  productsApi: 1
+  stockApi: 1
+  database: 1
+
+image:
+  web:
+    repository: sixeyed/wiredbrain-web
+    tag: ""
+  productsApi:
+    repository: sixeyed/wiredbrain-products-api
+    tag: ""
+  stockApi:
+    repository: sixeyed/wiredbrain-stock-api
+    tag: ""
+  database:
+    repository: sixeyed/wiredbrain-products-db
+    tag: ""
+
+service:
+  web:
+    type: LoadBalancer
+    port: 80
+    targetPort: 8080
+  productsApi:
+    type: ClusterIP
+    port: 8080
+  stockApi:
+    type: ClusterIP
+    port: 8080
+  database:
+    type: ClusterIP
+    port: 5432
+
+resources:
+  web:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+    limits:
+      memory: "256Mi"
+      cpu: "200m"
+  productsApi:
+    requests:
+      memory: "512Mi"
+      cpu: "750m"
+    limits:
+      memory: "1024Mi"
+      cpu: "1250m"
+  stockApi:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+    limits:
+      memory: "256Mi"
+      cpu: "200m"
+  database:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+
+database:
+  password: "wired"
+
+environment: "not secure"

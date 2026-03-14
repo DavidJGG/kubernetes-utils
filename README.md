@@ -7,6 +7,7 @@ Cada seccion tiene su propio README con mas detalle:
 - [Seccion 1 - API, Namespaces, Labels y Pods](./1%20-%20Kubernetes%20api%20and%20pods/README.md)
 - [Seccion 2 - Controllers y Deployments](./2%20-%20managing-kubernetes-controllers-deployments/README.md)
 - [Seccion 3 - Networking, Services e Ingress](./3%20-%20configuring-managing-kubernetes-networking-services-ingress/README.md)
+- [Seccion 5 - Seguridad en Kubernetes (Defense in Depth)](./5%20-%20configuring-managing-kubernetes-security-2/README.md)
 
 ## Indice
 
@@ -31,6 +32,12 @@ Cada seccion tiene su propio README con mas detalle:
 | [Services](#services) | 3 |
 | [Service Discovery](#service-discovery) | 3 |
 | [Ingress](#ingress) | 3 |
+| [RBAC para Service Accounts](#rbac-para-service-accounts) | 5 |
+| [Autenticacion de Usuarios y MFA](#autenticacion-de-usuarios-y-mfa) | 5 |
+| [Escaneo de Imagenes con Trivy Operator](#escaneo-de-imagenes-con-trivy-operator) | 5 |
+| [Politicas de Admision con Kyverno](#politicas-de-admision-con-kyverno) | 5 |
+| [Network Policies como Firewall](#network-policies-como-firewall) | 5 |
+| [Secretos Seguros con CSI Driver](#secretos-seguros-con-csi-driver) | 5 |
 
 ---
 
@@ -865,3 +872,258 @@ curl https://tls.example.com:443 --resolve tls.example.com:443:$INGRESSIP --inse
 ```
 
 Ejemplo YAML: [ingress-single.yaml](./3%20-%20configuring-managing-kubernetes-networking-services-ingress/04/demos/ingress-single.yaml), [ingress-path.yaml](./3%20-%20configuring-managing-kubernetes-networking-services-ingress/04/demos/ingress-path.yaml), [ingress-tls.yaml](./3%20-%20configuring-managing-kubernetes-networking-services-ingress/04/demos/ingress-tls.yaml)
+
+---
+
+## RBAC para Service Accounts
+
+Conceptos clave:
+- **RBAC** controla quien puede acceder a la API de Kubernetes y que puede hacer — la base de Defense in Depth
+- **Role** define permisos (verbos: get, list, create, delete) sobre recursos dentro de un namespace
+- **ClusterRole** equal que Role pero a nivel de cluster o como plantilla reutilizable
+- **RoleBinding** conecta un Role a un ServiceAccount o User en un namespace especifico
+- **ClusterRoleBinding** conecta un ClusterRole a un sujeto con permisos en todo el cluster
+- Anti-patron critico: SA `default` con `cluster-admin` — todos los pods sin SA explicito lo heredan
+- `automountServiceAccountToken: false` deshabilita el token en pods que no necesitan acceso a la API
+- Los permisos RBAC se evaluan en runtime sin necesidad de reiniciar pods
+
+```bash
+# Detectar SA default con permisos peligrosos
+kubectl get clusterrolebindings -o json | jq -r '.items[] | select(.subjects[]? | select(.name == "default")) | {name: .metadata.name, role: .roleRef.name}'
+
+# Ver todos los ServiceAccounts
+kubectl get serviceaccounts -n default
+
+# Verificar permisos de un SA especifico
+kubectl auth can-i get pods --namespace default --as system:serviceaccount:default:kube-explorer
+kubectl auth can-i delete pods --namespace kube-system --as system:serviceaccount:default:kube-explorer
+
+# Listar todos los RoleBindings de un SA en todos los namespaces
+kubectl get rolebindings -A -o json | jq -r '[.items[] | select(.subjects[].name == "kube-explorer") | {namespace: .metadata.namespace, name: .metadata.name, role: .roleRef.name}]'
+
+# Aplicar RBAC con minimo privilegio (Role + SA + RoleBinding)
+kubectl apply -f ./5%20-%20configuring-managing-kubernetes-security-2/01/demos/m1/demo1/update-1/rbac.yaml
+
+# Ampliar permisos a otro namespace (solo lectura)
+kubectl apply -f ./5%20-%20configuring-managing-kubernetes-security-2/01/demos/m1/demo1/update-2/rbac.yaml
+
+# Listar todos mis permisos actuales
+kubectl auth can-i --list
+kubectl auth can-i --list --namespace wiredbrain
+
+# Inspeccionar el JWT del ServiceAccount dentro del pod
+kubectl exec deploy/kube-explorer -- cat /var/run/secrets/kubernetes.io/serviceaccount/token
+```
+
+Ejemplo YAML: [rbac-insecure.yaml](./5%20-%20configuring-managing-kubernetes-security-2/01/demos/m1/demo1/setup/rbac-insecure.yaml), [update-1/rbac.yaml](./5%20-%20configuring-managing-kubernetes-security-2/01/demos/m1/demo1/update-1/rbac.yaml), [update-2/rbac.yaml](./5%20-%20configuring-managing-kubernetes-security-2/01/demos/m1/demo1/update-2/rbac.yaml)
+
+---
+
+## Autenticacion de Usuarios y MFA
+
+Conceptos clave:
+- Kubernetes **no gestiona usuarios internamente** — delega a sistemas externos (certificados, tokens, OIDC)
+- Credenciales estaticas en kubeconfig son un riesgo: si el archivo se compromete, el atacante tiene acceso indefinido
+- **Azure Entra ID + kubelogin** integran AKS con MFA y tokens de corta duracion (~1 hora)
+- `--disable-local-accounts` en AKS elimina el backdoor de credenciales estaticas
+- ClusterRoles predefinidos: `view` (lectura), `edit` (lectura/escritura), `admin` (full namespace), `cluster-admin` (root)
+- El mismo modelo aplica para EKS (AWS IAM), GKE (Google Identity), on-prem (Keycloak + OIDC)
+
+```bash
+# Obtener credenciales del cluster (sin AD)
+az aks get-credentials --resource-group <rg> --name <cluster> --overwrite-existing
+
+# Ver metodo de autenticacion actual
+kubectl config view --minify
+
+# Habilitar Azure Entra ID y deshabilitar cuentas locales
+$adminGroupId = az ad group show --group "cluster-admins" --query id -o tsv
+az aks update --resource-group <rg> --name <cluster> --enable-aad --aad-admin-group-object-ids $adminGroupId --disable-local-accounts
+
+# Obtener credenciales (ahora usa kubelogin con exec)
+az aks get-credentials --resource-group <rg> --name <cluster> --overwrite-existing
+
+# Primera autenticacion con MFA (device code en el navegador)
+kubectl get nodes
+
+# Verificar permisos del admin
+kubectl auth can-i --list
+
+# Crear usuario con minimo privilegio (view en un namespace)
+kubectl apply -f ./5%20-%20configuring-managing-kubernetes-security-2/01/demos/m1/demo2/rbac/least-privilege.yaml
+
+# Credenciales separadas para usuario restringido
+az aks get-credentials --resource-group <rg> --name <cluster> --file least-privilege.kubeconfig
+kubectl --kubeconfig least-privilege.kubeconfig get pods -n wiredbrain
+kubectl --kubeconfig least-privilege.kubeconfig auth can-i --list
+```
+
+Ejemplo YAML: [least-privilege.yaml](./5%20-%20configuring-managing-kubernetes-security-2/01/demos/m1/demo2/rbac/least-privilege.yaml)
+
+---
+
+## Escaneo de Imagenes con Trivy Operator
+
+Conceptos clave:
+- **Supply chain complexity**: cada imagen contiene cientos de paquetes con release schedules independientes
+- **Trivy Operator** escanea continuamente todas las imagenes de todos los pods del cluster
+- Produce **VulnerabilityReport** como custom resource — consultable con kubectl como cualquier objeto
+- El escaneo es continuo: detecta nuevas CVEs en imagenes ya desplegadas
+- Los reportes persisten aunque el pod se escale a 0 (se limpian solo si se elimina el Deployment)
+
+```bash
+# Instalar Trivy Operator
+helm repo add aqua https://aquasecurity.github.io/helm-charts/
+helm repo update
+helm install trivy-operator aqua/trivy-operator --namespace trivy-system --create-namespace --set="trivy.resources.limits.memory=4Gi" --version 0.31.0 --wait
+
+# Ver pods del operador
+kubectl get pods -n trivy-system
+
+# Ver reportes generados (esperar unos minutos despues de instalar)
+kubectl get vulnerabilityreport -A
+kubectl get vulnerabilityreport -w -n wiredbrain
+
+# Ver resumen de severidades
+kubectl get vulnerabilityreport <nombre> -n wiredbrain -o jsonpath='{.report.summary}' | jq .
+
+# Listar imagenes con CVEs criticos en todo el cluster
+kubectl get vulnerabilityreport -A -o json | jq -r '.items[] | select(.report.summary.criticalCount > 0) | {image: .report.artifact.repository, tag: .report.artifact.tag, critical: .report.summary.criticalCount}'
+
+# Escalar a 0 para remover pod vulnerable (el reporte persiste)
+kubectl scale deploy/products-api-vulnerable --replicas 0 -n wiredbrain
+```
+
+Ejemplo YAML: [vulnerable-app.yaml](./5%20-%20configuring-managing-kubernetes-security-2/02/demos/m2/demo1/initial-scan/vulnerable-app.yaml), [block-critical-cves.yaml](./5%20-%20configuring-managing-kubernetes-security-2/02/demos/m2/demo1/admission-control/block-critical-cves.yaml)
+
+---
+
+## Politicas de Admision con Kyverno
+
+Conceptos clave:
+- **Kyverno** es un policy engine nativo de Kubernetes — las politicas se definen como YAML (ClusterPolicy)
+- **Admission Control**: intercepta creaciones/actualizaciones antes de que se persistan en etcd
+- `validationFailureAction: Enforce` — bloquea el recurso si viola la politica (hard gate)
+- `validationFailureAction: Audit` — permite el recurso pero registra la violacion (soft gate)
+- CVEs en modo Audit (no Enforce) para no interrumpir auto-scaling o rolling updates en produccion
+- **Policy Reports**: Kyverno genera reportes automaticos consultables con kubectl
+
+```bash
+# Instalar Kyverno
+helm repo add kyverno https://kyverno.github.io/kyverno/
+helm repo update
+helm install kyverno kyverno/kyverno --namespace kyverno --create-namespace --version 3.5.2 --wait
+
+# Verificar los tres controladores
+kubectl get pods -n kyverno
+
+# Aplicar politicas de seguridad (Enforce: registry + non-root)
+kubectl apply -f ./5%20-%20configuring-managing-kubernetes-security-2/02/demos/m2/demo2/admission-control/security-policies.yaml
+
+# Aplicar politica de CVEs (Audit: no bloquea)
+kubectl apply -f ./5%20-%20configuring-managing-kubernetes-security-2/02/demos/m2/demo2/admission-control/vulnerability-report-policy.yaml
+
+# Ver ClusterPolicies activas
+kubectl get clusterpolicies
+
+# Ver Policy Reports (resultado de evaluaciones)
+kubectl get policyreport -A
+kubectl get policyreport -n wiredbrain -o yaml
+
+# Ver solo violaciones (modo audit)
+kubectl get policyreport -n wiredbrain -o jsonpath='{.items[0].results}' | jq '.[] | select(.result == "fail")'
+```
+
+Ejemplo YAML: [security-policies.yaml](./5%20-%20configuring-managing-kubernetes-security-2/02/demos/m2/demo2/admission-control/security-policies.yaml), [vulnerability-report-policy.yaml](./5%20-%20configuring-managing-kubernetes-security-2/02/demos/m2/demo2/admission-control/vulnerability-report-policy.yaml)
+
+---
+
+## Network Policies como Firewall
+
+Conceptos clave:
+- Kubernetes networking es **abierto por default** — cualquier pod puede hablar con cualquier otro
+- **NetworkPolicy** es el firewall nativo de Kubernetes — usa label selectors para definir reglas
+- `Ingress`: quien puede enviarme trafico. `Egress`: a donde puedo enviar trafico
+- **Zero-trust baseline**: `podSelector: {}` sin reglas = default-deny para todos los pods del namespace
+- Las politicas son **aditivas** (OR logico) y se evaluan en runtime sin restart
+- **DNS critico**: bloquear todo egress tambien bloquea DNS (puerto 53/UDP) — siempre agregar `allow-dns`
+- Requiere CNI con soporte: Calico, Cilium, k3d (Docker Desktop **no** soporta NetworkPolicy)
+- Cada comunicacion necesita **egress en el origen + ingress en el destino**
+
+```bash
+# Crear cluster local con soporte de NetworkPolicy
+k3d cluster create mi-cluster --agents 1 --k3s-arg "--disable=traefik@server:0"
+
+# Desplegar app (sin restricciones iniciales)
+kubectl apply -f ./5%20-%20configuring-managing-kubernetes-security-2/03/demos/m3/demo1/initial-deploy/
+
+# Probar problema: web puede llegar a DB directamente
+kubectl exec -n wiredbrain deploy/web-app -- nc -zv products-db 5432
+
+# Aplicar default-deny (bloquea todo)
+kubectl apply -f ./5%20-%20configuring-managing-kubernetes-security-2/03/demos/m3/demo1/default-deny/default-deny.yaml
+
+# Permitir DNS (obligatorio o nada funciona)
+kubectl apply -f ./5%20-%20configuring-managing-kubernetes-security-2/03/demos/m3/demo1/allow-policies/allow-dns.yaml
+
+# Aplicar todas las politicas de la app
+kubectl apply -f ./5%20-%20configuring-managing-kubernetes-security-2/03/demos/m3/demo1/allow-policies/
+
+# Verificar segmentacion: debe FALLAR (web -> db directa)
+kubectl exec -n wiredbrain deploy/web-app -- nc -zv products-db 5432
+
+# Verificar: debe FUNCIONAR (web -> api)
+kubectl exec -n wiredbrain deploy/web-app -- wget -qO- http://products-api/products
+
+# Verificar: debe FALLAR (egress a internet)
+kubectl exec -n wiredbrain deploy/web-app -- wget -qO- http://example.com
+
+# Ver NetworkPolicies activas
+kubectl get networkpolicy -n wiredbrain
+kubectl describe networkpolicy default-deny-all -n wiredbrain
+```
+
+Ejemplo YAML: [default-deny.yaml](./5%20-%20configuring-managing-kubernetes-security-2/03/demos/m3/demo1/default-deny/default-deny.yaml), [allow-dns.yaml](./5%20-%20configuring-managing-kubernetes-security-2/03/demos/m3/demo1/allow-policies/allow-dns.yaml)
+
+---
+
+## Secretos Seguros con CSI Driver
+
+Conceptos clave:
+- **Kubernetes Secrets** usan base64 — NO es cifrado, trivialmente decodificable con `base64 -d`
+- Tres vectores de ataque: en source control (values.yaml), en etcd (base64), como variable de entorno en el pod
+- **External Secrets**: Azure Key Vault, AWS Secrets Manager, HashiCorp Vault — los secretos nunca tocan etcd
+- **Secret Store CSI Driver** monta secretos externos como archivos read-only en el pod
+- **SecretProviderClass** define que secretos obtener de que vault y como nombrar los archivos
+- **Workload Identity / IRSA**: el pod se autentica al vault via OIDC usando su ServiceAccount — sin credenciales estaticas
+- Los secretos se montan en memoria del nodo (`/mnt/secrets/`) — NO se persisten en disco
+
+```bash
+# Ver el problema con Kubernetes Secrets normales
+kubectl get secret db-credentials -n wiredbrain -o yaml
+kubectl get secret db-credentials -n wiredbrain -o jsonpath='{.data.password}' | base64 -d
+
+# Ver el secret como variable de entorno (vector de ataque)
+kubectl exec -n wiredbrain deploy/database -- printenv POSTGRES_PASSWORD
+
+# Crear AKS con workload identity y CSI driver habilitados
+az aks create --resource-group <rg> --name <cluster> --enable-managed-identity --enable-addons azure-keyvault-secrets-provider --enable-oidc-issuer --enable-workload-identity --generate-ssh-keys
+
+# Desplegar con CSI Driver (sin Kubernetes Secrets)
+helm upgrade wiredbrain ./5%20-%20configuring-managing-kubernetes-security-2/03/demos/m3/demo2/charts/wiredbrain-secure --namespace wiredbrain -f values-csi.yaml --wait
+
+# Verificar que el secret ya NO existe en Kubernetes
+kubectl get secret db-credentials -n wiredbrain
+
+# Verificar que la variable de entorno ya NO tiene el password
+kubectl exec -n wiredbrain deploy/database -- printenv POSTGRES_PASSWORD
+
+# El secreto ahora esta como archivo (en memoria del nodo)
+kubectl exec -n wiredbrain deploy/database -- ls /mnt/secrets/
+kubectl exec -n wiredbrain deploy/database -- cat /mnt/secrets/postgres-password
+
+# Verificar secretos en Azure Key Vault
+az keyvault secret list --vault-name <vault-name> -o table
+```
+
+Ejemplo YAML: [secret-provider.yaml](./5%20-%20configuring-managing-kubernetes-security-2/03/demos/m3/demo2/charts/wiredbrain-secure/templates/secret-provider.yaml), [serviceaccount.yaml](./5%20-%20configuring-managing-kubernetes-security-2/03/demos/m3/demo2/charts/wiredbrain-secure/templates/serviceaccount.yaml), [database.yaml](./5%20-%20configuring-managing-kubernetes-security-2/03/demos/m3/demo2/charts/wiredbrain-secure/templates/database.yaml)

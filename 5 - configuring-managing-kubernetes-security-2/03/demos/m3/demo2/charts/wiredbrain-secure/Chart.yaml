@@ -1,0 +1,6 @@
+apiVersion: v2
+name: wiredbrain-secure
+description: A Helm chart for WiredBrain Coffee with Azure Key Vault CSI Driver integration
+type: application
+version: 1.0.0
+appVersion: "25-m4"

@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "wiredbrain.fullname" . }}-stock-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "wiredbrain.labels" . | nindent 4 }}
+    component: stock-api
+spec:
+  replicas: {{ .Values.replicaCount.stockApi }}
+  selector:
+    matchLabels:
+      {{- include "wiredbrain.selectorLabels" . | nindent 6 }}
+      component: stock-api
+  template:
+    metadata:
+      labels:
+        {{- include "wiredbrain.selectorLabels" . | nindent 8 }}
+        component: stock-api
+        azure.workload.identity/use: "true"
+    spec:
+      serviceAccountName: workload-identity-sa
+      containers:
+      - name: api
+        image: {{ include "wiredbrain.image" (dict "root" . "image" .Values.image.stockApi) }}
+        ports:
+        - containerPort: 8080
+        env:
+        - name: POSTGRES_CONNECTION_STRING_FILE
+          value: /mnt/secrets/db-connection-string
+        resources:
+          {{- toYaml .Values.resources.stockApi | nindent 10 }}
+        readinessProbe:
+          httpGet:
+            path: /stock/1
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        volumeMounts:
+        - name: secrets-store
+          mountPath: "/mnt/secrets"
+          readOnly: true
+      volumes:
+      - name: secrets-store
+        csi:
+          driver: secrets-store.csi.k8s.io
+          readOnly: true
+          volumeAttributes:
+            secretProviderClass: "stock-api-credentials"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stock-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "wiredbrain.labels" . | nindent 4 }}
+    component: stock-api
+spec:
+  selector:
+    {{- include "wiredbrain.selectorLabels" . | nindent 4 }}
+    component: stock-api
+  ports:
+  - port: {{ .Values.service.stockApi.port }}
+    targetPort: 8080
+  type: {{ .Values.service.stockApi.type }}

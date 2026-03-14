@@ -1,0 +1,13 @@
+services:
+
+  products-db:
+    image: sixeyed/wiredbrain-products-db:25-k8s-m3-linux-amd64
+
+  products-api:
+    image: sixeyed/wiredbrain-products-api:25-k8s-m3-linux-amd64
+
+  stock-api:
+    image: sixeyed/wiredbrain-stock-api:25-k8s-m3-linux-amd64
+
+  web:
+    image: sixeyed/wiredbrain-web:25-k8s-m3-linux-amd64
