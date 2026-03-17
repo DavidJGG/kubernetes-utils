@@ -7,6 +7,7 @@ Cada seccion tiene su propio README con mas detalle:
 - [Seccion 1 - API, Namespaces, Labels y Pods](./1%20-%20Kubernetes%20api%20and%20pods/README.md)
 - [Seccion 2 - Controllers y Deployments](./2%20-%20managing-kubernetes-controllers-deployments/README.md)
 - [Seccion 3 - Networking, Services e Ingress](./3%20-%20configuring-managing-kubernetes-networking-services-ingress/README.md)
+- [Seccion 4 - Storage y Scheduling](./4%20-%20config-managing-kubernetes-storage-and-scheduling/README.md)
 - [Seccion 5 - Seguridad en Kubernetes (Defense in Depth)](./5%20-%20configuring-managing-kubernetes-security-2/README.md)
 
 ## Indice
@@ -32,6 +33,12 @@ Cada seccion tiene su propio README con mas detalle:
 | [Services](#services) | 3 |
 | [Service Discovery](#service-discovery) | 3 |
 | [Ingress](#ingress) | 3 |
+| [PersistentVolumes y PersistentVolumeClaims](#persistentvolumes-y-persistentvolumeclaims) | 4 |
+| [StorageClasses y Dynamic Provisioning](#storageclasses-y-dynamic-provisioning) | 4 |
+| [Taints y Tolerations](#taints-y-tolerations) | 4 |
+| [Node/Pod Affinity y Resource Limits](#nodepod-affinity-y-resource-limits) | 4 |
+| [Pod Disruption Budgets](#pod-disruption-budgets) | 4 |
+| [Topology Spread Constraints](#topology-spread-constraints) | 4 |
 | [RBAC para Service Accounts](#rbac-para-service-accounts) | 5 |
 | [Autenticacion de Usuarios y MFA](#autenticacion-de-usuarios-y-mfa) | 5 |
 | [Escaneo de Imagenes con Trivy Operator](#escaneo-de-imagenes-con-trivy-operator) | 5 |
@@ -872,6 +879,182 @@ curl https://tls.example.com:443 --resolve tls.example.com:443:$INGRESSIP --inse
 ```
 
 Ejemplo YAML: [ingress-single.yaml](./3%20-%20configuring-managing-kubernetes-networking-services-ingress/04/demos/ingress-single.yaml), [ingress-path.yaml](./3%20-%20configuring-managing-kubernetes-networking-services-ingress/04/demos/ingress-path.yaml), [ingress-tls.yaml](./3%20-%20configuring-managing-kubernetes-networking-services-ingress/04/demos/ingress-tls.yaml)
+
+---
+
+## PersistentVolumes y PersistentVolumeClaims
+
+Conceptos clave:
+- Los contenedores son **efimeros por defecto**: cualquier dato en el sistema de archivos del contenedor desaparece al reiniciar o reemplazar el Pod
+- Un **PersistentVolume (PV)** representa una pieza de almacenamiento en el cluster, provisionada por un admin o dinamicamente por una StorageClass
+- Un **PersistentVolumeClaim (PVC)** es la solicitud de almacenamiento por parte de un workload — Kubernetes actua como "matchmaker" entre PVC y PV
+- `accessModes`: `ReadWriteOnce` (un solo nodo), `ReadOnlyMany`, `ReadWriteMany`
+- Una vez que el PVC queda en estado `Bound`, el pod puede montar ese almacenamiento y los datos persisten aunque el pod sea eliminado y recreado
+
+```bash
+# Crear PersistentVolume
+kubectl apply -f pv-demo.yaml
+
+# Crear PersistentVolumeClaim
+kubectl apply -f pvc-demo.yaml
+
+# Verificar estado del PVC (debe estar en Bound)
+kubectl get pvc
+
+# Crear el pod que consume el PVC
+kubectl apply -f pod-demo.yaml
+
+# Verificar persistencia: eliminar pod, recrear y comprobar datos
+kubectl delete pod pod-demo
+kubectl apply -f pod-demo.yaml
+kubectl exec -it pod-demo -- cat /data/test.txt
+```
+
+---
+
+## StorageClasses y Dynamic Provisioning
+
+Conceptos clave:
+- Una **StorageClass** actua como una "receta" para el almacenamiento: define el provisioner, parametros y politica de ciclo de vida
+- `provisioner`: quien crea el almacenamiento (ej: `ebs.csi.aws.com`). Para local sin backend: `kubernetes.io/no-provisioner`
+- `reclaimPolicy: Delete` elimina el PV al borrar el PVC (dev/test). `Retain` lo conserva (produccion)
+- `volumeBindingMode: Immediate` enlaza el volumen en cuanto se crea el PVC
+- El **provisionamiento dinamico** elimina la necesidad de crear PVs manualmente
+
+```bash
+# Crear la StorageClass
+kubectl apply -f storageclass.yaml
+
+# Ver StorageClasses disponibles
+kubectl get sc
+
+# Crear PVC que referencia la StorageClass
+kubectl apply -f pvc.yaml
+
+# Verificar que el PVC quedo Bound
+kubectl get pvc
+
+# Desplegar pod que usa el PVC
+kubectl apply -f pod.yaml
+kubectl get pods
+```
+
+---
+
+## Taints y Tolerations
+
+Conceptos clave:
+- Un **taint** marca un nodo para que pods ordinarios no sean programados en el: `key=value:Effect`
+- Efectos: `NoSchedule` (no programar), `PreferNoSchedule` (evitar), `NoExecute` (tampoco los ya corriendo)
+- Una **toleration** en el Pod es la "llave" que le permite ignorar el taint del nodo
+- Toleration solo **permite** el scheduling en el nodo taintado — no lo fuerza. Combinar con `nodeSelector` para forzarlo
+
+```bash
+# Ver nodos del cluster
+kubectl get nodes
+
+# Aplicar taint a un nodo
+kubectl taint nodes desktop-worker dedicated=analytics:NoSchedule
+
+# Verificar el taint
+kubectl describe node desktop-worker | grep Taints
+
+# Etiquetar nodo para el nodeSelector
+kubectl label node desktop-worker dedicated=analytics
+
+# Desplegar pod con toleration + nodeSelector
+kubectl apply -f analytics-pod.yaml
+kubectl get pods -o wide
+
+# Eliminar el taint (agregar - al final)
+kubectl taint nodes desktop-worker dedicated=analytics:NoSchedule-
+```
+
+---
+
+## Node/Pod Affinity y Resource Limits
+
+Conceptos clave:
+- **Node affinity** guia al scheduler hacia nodos con labels especificos. `requiredDuringSchedulingIgnoredDuringExecution` es obligatoria
+- **Pod affinity** coloca pods cerca de otros pods con ciertos labels (util para sidecars y caches locales)
+- **Pod anti-affinity** mantiene replicas en nodos distintos para mejorar tolerancia a fallos
+- **Resource requests**: minimo de CPU/memoria que necesita el pod para ser programado
+- **Resource limits**: maximo que puede consumir — CPU throttled si supera, pod OOMKilled si supera memoria
+
+```bash
+# Etiquetar nodos para affinity rules
+kubectl label node desktop-worker role=analytics
+kubectl label node desktop-worker2 role=web
+
+# Desplegar pod con node affinity y resource limits
+kubectl apply -f analytics-affinity-pod.yaml
+kubectl get pods -o wide
+
+# Desplegar sidecar con pod affinity
+kubectl apply -f frontend-sidecar.yaml
+kubectl get pods -o wide
+```
+
+---
+
+## Pod Disruption Budgets
+
+Conceptos clave:
+- Un **Pod Disruption Budget (PDB)** define cuantos pods pueden ser interrumpidos durante disrupciones voluntarias (drains, upgrades)
+- `minAvailable: N` garantiza que al menos N pods permanezcan corriendo
+- `maxUnavailable: N` equivalente — cuantos pueden estar caidos
+- Solo aplica a **disrupciones voluntarias**. Fallos de nodo no son controlados por el PDB
+- Si un drain violaria el PDB, Kubernetes lo bloquea hasta que haya suficientes pods disponibles
+
+```bash
+# Desplegar app con multiples replicas
+kubectl apply -f webapp-deployment.yaml
+kubectl get pods -l app=webapp
+
+# Crear el PDB
+kubectl apply -f webapp-pdb.yaml
+
+# Ver disrupciones permitidas
+kubectl get pdb
+kubectl describe pdb webapp-pdb
+
+# Simular drain (respeta el PDB)
+kubectl drain desktop-worker --ignore-daemonsets --delete-emptydir-data
+
+# Restaurar el nodo
+kubectl uncordon desktop-worker
+
+# Intentar drain que viola el PDB (sera bloqueado)
+kubectl drain desktop-worker2 --ignore-daemonsets --delete-emptydir-data
+```
+
+---
+
+## Topology Spread Constraints
+
+Conceptos clave:
+- Distribuyen pods uniformemente entre zonas, nodos u otros dominios de fallo para aumentar tolerancia a fallos
+- `maxSkew: N` — diferencia maxima en numero de pods entre nodos
+- `topologyKey`: `kubernetes.io/hostname` (por nodo) o `topology.kubernetes.io/zone` (por zona)
+- `whenUnsatisfiable: DoNotSchedule` bloquea scheduling si no puede cumplir la restriccion
+- Combinando topology spread + PDB se garantiza **alta disponibilidad y distribucion balanceada** simultaneamente
+
+```bash
+# Desplegar con topology spread constraints
+kubectl apply -f topology-demo.yaml
+
+# Verificar distribucion de pods entre nodos
+kubectl get pods -o wide -l app=topology-demo
+
+# Combinar topology spread + PDB
+kubectl apply -f topology-pdb-demo.yaml
+kubectl apply -f topology-pdb-demo-pdb.yaml
+kubectl get pods -o wide
+
+# Simular disruption (bloqueada si viola el PDB)
+kubectl drain desktop-worker --ignore-daemonsets --delete-emptydir-data
+kubectl uncordon desktop-worker
+```
 
 ---
 
