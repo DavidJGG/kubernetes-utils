@@ -9,6 +9,7 @@ Cada seccion tiene su propio README con mas detalle:
 - [Seccion 3 - Networking, Services e Ingress](./3%20-%20configuring-managing-kubernetes-networking-services-ingress/README.md)
 - [Seccion 4 - Storage y Scheduling](./4%20-%20config-managing-kubernetes-storage-and-scheduling/README.md)
 - [Seccion 5 - Seguridad en Kubernetes (Defense in Depth)](./5%20-%20configuring-managing-kubernetes-security-2/README.md)
+- [Seccion 6 - Mantenimiento, Monitoreo y Troubleshooting](./6%20-%20maintaining-monitoring-troubleshoot-kubernetes/README.md)
 
 ## Indice
 
@@ -45,6 +46,19 @@ Cada seccion tiene su propio README con mas detalle:
 | [Politicas de Admision con Kyverno](#politicas-de-admision-con-kyverno) | 5 |
 | [Network Policies como Firewall](#network-policies-como-firewall) | 5 |
 | [Secretos Seguros con CSI Driver](#secretos-seguros-con-csi-driver) | 5 |
+| [Helm - Gestion de Aplicaciones](#helm---gestion-de-aplicaciones) | 6 |
+| [Alta Disponibilidad (HA)](#alta-disponibilidad-ha) | 6 |
+| [Upgrade de Cluster Kubernetes](#upgrade-de-cluster-kubernetes) | 6 |
+| [Metrics Server](#metrics-server) | 6 |
+| [Prometheus y Grafana](#prometheus-y-grafana) | 6 |
+| [Logging Centralizado con Loki y Grafana Alloy](#logging-centralizado-con-loki-y-grafana-alloy) | 6 |
+| [SLI, SLO, SLA y Chaos Engineering](#sli-slo-sla-y-chaos-engineering) | 6 |
+| [Troubleshooting: Workflow General](#troubleshooting-workflow-general) | 6 |
+| [Troubleshooting: CrashLoopBackOff](#troubleshooting-crashloopbackoff) | 6 |
+| [Troubleshooting: ImagePullBackOff](#troubleshooting-imagepullbackoff) | 6 |
+| [Troubleshooting: Pending Pods](#troubleshooting-pending-pods) | 6 |
+| [Troubleshooting: Networking](#troubleshooting-networking) | 6 |
+| [Troubleshooting: OOMKilled](#troubleshooting-oomkilled) | 6 |
 
 ---
 
@@ -1310,3 +1324,339 @@ az keyvault secret list --vault-name <vault-name> -o table
 ```
 
 Ejemplo YAML: [secret-provider.yaml](./5%20-%20configuring-managing-kubernetes-security-2/03/demos/m3/demo2/charts/wiredbrain-secure/templates/secret-provider.yaml), [serviceaccount.yaml](./5%20-%20configuring-managing-kubernetes-security-2/03/demos/m3/demo2/charts/wiredbrain-secure/templates/serviceaccount.yaml), [database.yaml](./5%20-%20configuring-managing-kubernetes-security-2/03/demos/m3/demo2/charts/wiredbrain-secure/templates/database.yaml)
+
+---
+
+## Helm - Gestion de Aplicaciones
+
+Conceptos clave:
+- **Helm** es el package manager para Kubernetes (equivalente a apt/Homebrew pero para K8s). Proyecto graduado en la CNCF
+- Un **Helm chart** empaqueta todos los manifiestos YAML de una aplicacion en una unidad cohesiva con templates Go y valores separados
+- Estructura basica: `Chart.yaml` (metadatos obligatorios), `values.yaml` (configuracion parametrizable), `templates/` (manifiestos Go-template)
+- Los valores en `values.yaml` se inyectan en los templates al instalar/actualizar, evitando duplicar configuracion en multiples archivos
+- Cada `helm upgrade` crea una nueva **revision** del release, trazable con `helm history`. Se puede hacer rollback a cualquier revision
+- El release puede incluir `PodDisruptionBudget` para proteger disponibilidad durante actualizaciones
+
+```bash
+# Instalar aplicacion desde chart local
+helm install guestbook ./guestbook
+
+# Actualizar release (nueva revision)
+helm upgrade guestbook ./guestbook
+
+# Ver historial de revisiones
+helm history guestbook
+
+# Hacer rollback a una revision especifica
+helm rollback guestbook 3
+
+# Listar releases instalados
+helm list
+
+# Eliminar un release
+helm uninstall guestbook
+```
+
+Detalle: [Seccion 6 README](./6%20-%20maintaining-monitoring-troubleshoot-kubernetes/README.md#helm---gestion-de-aplicaciones)
+
+---
+
+## Alta Disponibilidad (HA)
+
+Conceptos clave:
+- **Replicas**: multiples copias del Pod sirviendo trafico. Si uno crashea, los demas siguen activos
+- **Pod Disruption Budget (PDB)**: define el minimo de Pods disponibles durante disrupciones voluntarias (drain, upgrade, scale down)
+- **Pod Anti-Affinity**: distribuye Pods entre distintos nodos para evitar single point of failure
+- La combinacion Replicas + PDB + Anti-Affinity habilita **upgrades sin downtime**
+
+```bash
+# Ver Pod Disruption Budgets activos
+kubectl get pdb
+
+# Describir un PDB
+kubectl describe pdb guestbook-backend-pdb
+
+# Verificar distribucion de pods entre nodos
+kubectl get pods -o wide
+```
+
+Detalle: [Seccion 6 README](./6%20-%20maintaining-monitoring-troubleshoot-kubernetes/README.md#alta-disponibilidad-ha)
+
+---
+
+## Upgrade de Cluster Kubernetes
+
+Conceptos clave:
+- Orden obligatorio: **Control Plane primero**, luego worker nodes uno a la vez
+- **etcd backup** es obligatorio antes de iniciar cualquier upgrade
+- Componentes: `kubeadm` (orquesta el upgrade), `kubelet` y `kubectl` (se actualizan separadamente)
+- Worker node: (1) cordon, (2) drain, (3) SSH + upgrade, (4) uncordon
+- Con HA configurada (replicas + PDB + anti-affinity), la aplicacion tiene **zero downtime** durante el upgrade
+
+```bash
+# Verificar versiones actuales
+kubectl get nodes -o wide
+kubectl version
+
+# Backup de etcd
+sudo etcdctl snapshot save /home/ubuntu/etcd-snapshot.db \
+  --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/server.crt \
+  --key=/etc/kubernetes/pki/etcd/server.key
+
+# Ver plan de upgrade
+sudo kubeadm upgrade plan
+
+# Aplicar upgrade al control plane
+sudo kubeadm upgrade apply v1.34.2
+
+# Cordon + drain de un worker
+kubectl cordon k8s-worker-1
+kubectl drain k8s-worker-1 --ignore-daemonsets --delete-emptydir-data
+
+# Re-habilitar worker despues del upgrade
+kubectl uncordon k8s-worker-1
+```
+
+Detalle: [upgrading-k8s-cluster.md](./6%20-%20maintaining-monitoring-troubleshoot-kubernetes/01/demos/maintaining-k8s-m1/demo3/upgrading-k8s-cluster.md)
+
+---
+
+## Metrics Server
+
+Conceptos clave:
+- Provee metricas basicas de CPU y memoria a nivel de nodo y pod via el API `metrics.k8s.io`
+- Requerido para `kubectl top` y para el **Horizontal Pod Autoscaler (HPA)**
+- Solo guarda el snapshot mas reciente (sin historial). No apto como solucion completa de observabilidad
+
+```bash
+# Instalar metrics-server con Helm
+helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/
+helm install metrics-server metrics-server/metrics-server \
+  --namespace kube-system \
+  --set 'args[0]=--kubelet-insecure-tls'
+
+# Ver metricas por nodo
+kubectl top nodes
+
+# Ver metricas por pod
+kubectl top pods
+kubectl top pods --sort-by=memory
+```
+
+Detalle: [Seccion 6 README](./6%20-%20maintaining-monitoring-troubleshoot-kubernetes/README.md#metrics-server)
+
+---
+
+## Prometheus y Grafana
+
+Conceptos clave:
+- **Prometheus**: base de datos de series temporales con scraping automatico. Lenguaje **PromQL** para consultas y alertas
+- **Grafana**: visualizacion de metricas con dashboards configurables; se conecta a Prometheus como data source
+- **kube-prometheus-stack**: instala Prometheus + Grafana + Alertmanager + exporters en un solo `helm install`
+- **ServiceMonitor**: CRD que indica a Prometheus que scrapeee un Service especifico de la aplicacion
+- Niveles de metricas: cluster, nodo, pod, y metricas custom de aplicacion (expuestas en `/metrics`)
+
+```bash
+# Instalar kube-prometheus-stack
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+kubectl create namespace monitoring
+helm install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+  --namespace monitoring
+
+# Obtener password de Grafana
+kubectl get secret --namespace monitoring kube-prometheus-stack-grafana \
+  -o jsonpath="{.data.admin-password}" | base64 --decode
+
+# Acceder a Grafana
+kubectl port-forward -n monitoring svc/kube-prometheus-stack-grafana 3000:80
+
+# Acceder a Prometheus UI
+kubectl port-forward -n monitoring svc/kube-prometheus-stack-prometheus 9090:9090
+
+# Ver ServiceMonitors
+kubectl get servicemonitor
+```
+
+Detalle: [Seccion 6 README](./6%20-%20maintaining-monitoring-troubleshoot-kubernetes/README.md#prometheus-y-grafana)
+
+---
+
+## Logging Centralizado con Loki y Grafana Alloy
+
+Conceptos clave:
+- **Loki**: agregacion de logs de todo el cluster con retencion, busqueda cruzada y **LogQL**
+- **Grafana Alloy**: DaemonSet en cada nodo que recolecta y envia logs a Loki
+- Los logs persisten en Loki incluso cuando el pod crashea (a diferencia de `kubectl logs`)
+- **Logging estructurado (JSON)**: facilita el filtrado en Grafana por nivel, evento, pod, etc.
+
+```bash
+# Instalar Loki y Alloy
+helm repo add grafana https://grafana.github.io/helm-charts
+helm install loki grafana/loki --namespace monitoring --values loki-values.yaml
+helm install alloy grafana/alloy --namespace monitoring --values alloy-values.yaml
+
+# Ver logs de un pod (forma basica)
+kubectl logs <pod-name>
+kubectl logs <pod-name> --previous
+
+# Ver logs de todos los pods de un deployment
+kubectl logs -l app=guestbook-backend --all-containers
+```
+
+Detalle: [Seccion 6 README](./6%20-%20maintaining-monitoring-troubleshoot-kubernetes/README.md#logging-centralizado-con-loki-y-grafana-alloy)
+
+---
+
+## SLI, SLO, SLA y Chaos Engineering
+
+Conceptos clave:
+- **SLI**: metrica de confiabilidad (Availability, Latency P95, Error Rate)
+- **SLO**: objetivo interno medible para un SLI. Ej: disponibilidad >= 99.5%, P95 < 200ms
+- **SLA**: contrato con el cliente con consecuencias por incumplimiento
+- **Error Budget**: presupuesto de errores = 100% - SLO. Al agotarse, se prioriza confiabilidad sobre velocidad
+- **Chaos Engineering**: inyeccion deliberada de fallas (latencia, errores HTTP, crashes) para validar el sistema de observabilidad
+
+```bash
+# Habilitar chaos de latencia
+curl -X POST http://localhost:5000/api/chaos/enable \
+  -H "Content-Type: application/json" \
+  -d '{"mode": "latency", "intensity": 50}'
+
+# Verificar estado del chaos
+curl http://localhost:5000/api/chaos/status
+
+# Deshabilitar chaos
+curl -X POST http://localhost:5000/api/chaos/disable
+
+# Monitorear pods durante chaos de crash
+kubectl get pods -w
+```
+
+Detalle: [slo-definitions.md](./6%20-%20maintaining-monitoring-troubleshoot-kubernetes/02/demos/maintaining-k8s-m2/demo7/slo/slo-definitions.md)
+
+---
+
+## Troubleshooting: Workflow General
+
+Conceptos clave:
+- Workflow de 6 pasos aplicable a cualquier error: **Observe > Describe > Logs > Events > Fix > Verify**
+- Siempre usar `--previous` en `kubectl logs` si el pod ya crasheo para ver los logs del contenedor anterior
+
+```bash
+# Paso 1: Observar estado de pods
+kubectl get pods
+
+# Paso 2: Describir el pod (eventos, exit codes, restart count)
+kubectl describe pod <pod-name>
+
+# Paso 3: Ver logs del pod
+kubectl logs <pod-name>
+kubectl logs <pod-name> --previous
+
+# Paso 4: Ver eventos del cluster
+kubectl get events --sort-by='.lastTimestamp'
+
+# Paso 6: Verificar el fix
+kubectl get pods -o wide
+```
+
+Detalle: [Seccion 6 README](./6%20-%20maintaining-monitoring-troubleshoot-kubernetes/README.md#troubleshooting-workflow-general)
+
+---
+
+## Troubleshooting: CrashLoopBackOff
+
+Conceptos clave:
+- El pod arranca, falla y Kubernetes lo reinicia con **exponential backoff** (10s, 20s, 40s... hasta 5min)
+- Causas: variable de entorno erronea, dependencia inexistente, bug de aplicacion, recursos insuficientes
+- Exit Code `137` = OOMKilled, `1` = error de aplicacion
+
+```bash
+kubectl get pods
+kubectl describe pod <pod-name>      # ver restart count y exit code
+kubectl logs <pod-name> --previous   # logs del contenedor que crasheo
+kubectl get services                 # verificar que dependencias existen
+helm upgrade guestbook ./guestbook --values ./guestbook/values.yaml
+```
+
+Detalle: [Seccion 6 README](./6%20-%20maintaining-monitoring-troubleshoot-kubernetes/README.md#troubleshooting-crashloopbackoff)
+
+---
+
+## Troubleshooting: ImagePullBackOff
+
+Conceptos clave:
+- Kubernetes no pudo descargar la imagen del contenedor
+- Causas: tag inexistente, nombre de imagen incorrecto, registry privado sin `imagePullSecrets`
+- `kubectl describe pod` muestra exactamente que imagen intento descargar y el error
+
+```bash
+kubectl get pods
+kubectl describe pod <pod-name>   # ver "Failed to pull image" en Events
+helm get values <release-name>    # revisar tag de imagen configurado
+kubectl get secret                # verificar imagePullSecrets
+helm upgrade guestbook ./guestbook --values ./guestbook/values.yaml
+```
+
+Detalle: [Seccion 6 README](./6%20-%20maintaining-monitoring-troubleshoot-kubernetes/README.md#troubleshooting-imagepullbackoff)
+
+---
+
+## Troubleshooting: Pending Pods
+
+Conceptos clave:
+- El scheduler no pudo encontrar un nodo adecuado para el pod
+- Causas: CPU/memoria solicitada mayor a la disponible, taints sin tolerations, nodeSelector sin match, PVC no disponible
+- Los Events de `kubectl describe pod` indican exactamente el motivo (ej: "Insufficient cpu")
+
+```bash
+kubectl get pods
+kubectl describe pod <pod-name>    # ver "Insufficient cpu/memory" en Events
+kubectl top nodes                  # capacidad restante por nodo
+kubectl describe nodes             # recursos totales y allocatable
+kubectl get pvc                    # verificar PVCs si aplica
+helm upgrade guestbook ./guestbook --values ./guestbook/values.yaml
+```
+
+Detalle: [Seccion 6 README](./6%20-%20maintaining-monitoring-troubleshoot-kubernetes/README.md#troubleshooting-pending-pods)
+
+---
+
+## Troubleshooting: Networking
+
+Conceptos clave:
+- Causa mas comun: **label selector incorrecto** entre Service y Pods (el Service no encuentra los pods)
+- Un **Endpoint vacio** en el Service es el primer indicador de mismatch de selector
+- Otros: NetworkPolicy bloqueando trafico, puerto incorrecto en Service o Pod, Ingress mal configurado
+
+```bash
+kubectl get endpoints                     # verificar que endpoints tienen IPs
+kubectl describe service guestbook-backend  # ver selector configurado
+kubectl get pods --show-labels            # ver labels de los pods
+kubectl get networkpolicies -A            # verificar network policies
+helm upgrade guestbook ./guestbook --values ./guestbook/values.yaml
+```
+
+Detalle: [Seccion 6 README](./6%20-%20maintaining-monitoring-troubleshoot-kubernetes/README.md#troubleshooting-networking)
+
+---
+
+## Troubleshooting: OOMKilled
+
+Conceptos clave:
+- El contenedor supero su `memory limit` y el kernel lo termino con SIGKILL (exit code `137`)
+- El pod entra en CrashLoopBackOff. Los logs pueden estar vacios (kill abrupto del kernel)
+- `kubectl describe pod` muestra `Reason: OOMKilled` y `Exit Code: 137` en "Last State"
+- Solucion: incrementar `memory limit` basandose en el consumo real observado con `kubectl top pods`
+
+```bash
+kubectl get pods                          # ver pods con multiples reinicios
+kubectl describe pod <pod-name>           # buscar OOMKilled y Exit Code: 137
+kubectl top pods --containers             # ver consumo real de memoria
+kubectl logs <pod-name> --previous        # puede estar vacio
+helm upgrade guestbook ./guestbook --values ./guestbook/values.yaml
+```
+
+Detalle: [Seccion 6 README](./6%20-%20maintaining-monitoring-troubleshoot-kubernetes/README.md#troubleshooting-oomkilled)
