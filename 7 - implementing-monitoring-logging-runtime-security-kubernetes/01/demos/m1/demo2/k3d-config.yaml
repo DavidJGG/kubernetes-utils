@@ -1,0 +1,32 @@
+apiVersion: k3d.io/v1alpha5
+kind: Simple
+metadata:
+  name: m1-demo2
+servers: 1
+agents: 0
+
+ports:
+  - port: 30080:30080
+    nodeFilters:
+      - server:0
+  - port: 9090:30090
+    nodeFilters:
+      - server:0
+
+volumes:
+  - volume: /Users/elton/scm/psod/psod-k8s-logging/k8s-logging-source/m1/demo2/audit:/var/lib/rancher/k3s/server/audit
+    nodeFilters:
+      - server:0
+
+options:
+  k3s:
+    extraArgs:
+      - arg: --disable=traefik,servicelb,metrics-server
+        nodeFilters:
+          - server:*
+      - arg: --kube-apiserver-arg=audit-policy-file=/var/lib/rancher/k3s/server/audit/audit-policy.yaml
+        nodeFilters:
+          - server:*
+      - arg: --kube-apiserver-arg=audit-log-path=/var/log/kubernetes/audit/audit.log
+        nodeFilters:
+          - server:*

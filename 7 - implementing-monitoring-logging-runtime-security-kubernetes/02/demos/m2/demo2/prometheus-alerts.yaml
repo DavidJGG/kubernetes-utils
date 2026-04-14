@@ -1,0 +1,46 @@
+# Prometheus alerting rules for Falco security events
+
+serverFiles:
+  alerting_rules.yml:
+    groups:
+      - name: falco-security-alerts
+        rules:
+          # Alert on critical severity Falco events
+          - alert: FalcoCriticalAlert
+            expr: increase(falcosecurity_falcosidekick_falco_events_total{priority_raw="critical"}[5m]) > 0
+            for: 0m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Critical security event detected"
+              description: "Falco detected a critical severity event: {{ $labels.rule }}"
+
+          # Alert on reverse shell detection
+          - alert: ReverseShellDetected
+            expr: increase(falcosecurity_falcosidekick_falco_events_total{rule=~".*[Rr]everse.*[Ss]hell.*"}[5m]) > 0
+            for: 0m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Reverse shell detected"
+              description: "A reverse shell was detected in namespace {{ $labels.k8s_ns_name }}"
+
+          # Alert on sensitive file access
+          - alert: SensitiveFileAccess
+            expr: increase(falcosecurity_falcosidekick_falco_events_total{rule=~".*[Ss]ensitive.*file.*|.*[Ss]ervice.*[Aa]ccount.*[Tt]oken.*"}[5m]) > 3
+            for: 0m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Multiple sensitive file accesses detected"
+              description: "Multiple sensitive file access events in namespace {{ $labels.k8s_ns_name }}"
+
+          # Alert on high volume of any Falco events
+          - alert: HighFalcoEventRate
+            expr: rate(falcosecurity_falcosidekick_falco_events_total[5m]) > 1
+            for: 2m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High rate of Falco security events"
+              description: "Detecting more than 1 event per second over the last 5 minutes"

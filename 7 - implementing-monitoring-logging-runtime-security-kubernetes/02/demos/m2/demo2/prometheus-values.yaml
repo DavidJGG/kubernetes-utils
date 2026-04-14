@@ -1,0 +1,40 @@
+# Prometheus Helm values for Demo 2
+# Scrapes Falcosidekick metrics and alerts on security events
+
+# Disable components not needed for demo
+alertmanager:
+  enabled: false
+
+kube-state-metrics:
+  enabled: false
+
+prometheus-node-exporter:
+  enabled: false
+
+prometheus-pushgateway:
+  enabled: false
+
+# Prometheus server configuration
+server:
+  # Expose via NodePort for easy access
+  service:
+    type: NodePort
+    nodePort: 30090
+
+  # Faster scrape interval for demo
+  global:
+    scrape_interval: 5s
+    scrape_timeout: 5s
+    evaluation_interval: 5s
+
+  # Resource limits for demo
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  persistentVolume:
+    enabled: false

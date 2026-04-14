@@ -1,0 +1,49 @@
+# Development environment values
+environment: "development"
+
+replicaCount:
+  web: 1
+  productsApi: 1  
+  stockApi: 1
+  database: 1
+
+resources:
+  web:
+    requests:
+      memory: "64Mi"
+      cpu: "50m"
+    limits:
+      memory: "128Mi"
+      cpu: "100m"
+  productsApi:
+    requests:
+      memory: "64Mi"
+      cpu: "50m"
+    limits:
+      memory: "128Mi"
+      cpu: "100m"
+  stockApi:
+    requests:
+      memory: "64Mi"
+      cpu: "50m"
+    limits:
+      memory: "128Mi"
+      cpu: "100m"
+  database:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+    limits:
+      memory: "256Mi"
+      cpu: "200m"
+
+service:
+  web:
+    type: NodePort
+
+# Enable development features
+autoscaling:
+  enabled: false
+
+monitoring:
+  enabled: false

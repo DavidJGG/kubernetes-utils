@@ -1,0 +1,56 @@
+# Falco Helm values for Demo 1
+# Deploys Falco with modern eBPF driver for runtime threat detection
+
+driver:
+  kind: modern_ebpf
+
+falco:
+  # JSON output for easier parsing
+  json_output: true
+  json_include_output_property: true
+  json_include_tags_property: true
+
+  # Log all priority levels for demo
+  priority: debug
+
+# Kubernetes metadata enrichment
+collectors:
+  kubernetes:
+    enabled: true
+
+# Enable default rules
+falcoctl:
+  artifact:
+    install:
+      enabled: true
+    follow:
+      enabled: true
+  config:
+    artifact:
+      install:
+        refs:
+          - falco-rules:3
+      follow:
+        refs:
+          - falco-rules:3
+          
+          
+# Resource limits for demo environment
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+
+
+# Custom rules to fix K8S API detection in k3d
+# Default macro checks reverse DNS which doesn't work with service IPs
+customRules:
+  custom-rules.yaml: |-
+    - macro: k8s_api_server
+      condition: (fd.sip="10.43.0.1")
+      override:
+        condition: replace

@@ -1,0 +1,26 @@
+# Falcosidekick Helm values for Demo 2
+# Routes Falco alerts to Prometheus metrics
+
+# Listen on gRPC for Falco alerts
+config:
+  # Enable Prometheus metrics output
+  prometheus:
+    extralabels: ""
+
+# Expose metrics for Prometheus scraping
+webui:
+  enabled: false
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 2801
+
+# Resource limits for demo
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 100m
+    memory: 128Mi

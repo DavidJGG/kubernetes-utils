@@ -1,0 +1,6 @@
+apiVersion: v2
+name: wiredbrain
+description: A Helm chart for WiredBrain Coffee multi-container application
+type: application
+version: 1.0.0
+appVersion: "25-m4"

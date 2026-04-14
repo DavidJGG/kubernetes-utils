@@ -1,0 +1,74 @@
+apiVersion: audit.k8s.io/v1
+kind: Policy
+rules:
+  # Log RBAC changes at RequestResponse level (full request and response bodies)
+  - level: RequestResponse
+    resources:
+      - group: "rbac.authorization.k8s.io"
+        resources: ["clusterrolebindings", "rolebindings", "clusterroles", "roles"]
+    verbs: ["create", "update", "patch", "delete"]
+    omitStages:
+      - RequestReceived
+
+  # Log secrets access at Metadata level (who accessed, not the content)
+  - level: Metadata
+    resources:
+      - group: ""
+        resources: ["secrets"]
+    verbs: ["get", "list", "watch"]
+    omitStages:
+      - RequestReceived
+
+  # Log secrets modifications at RequestResponse level
+  - level: RequestResponse
+    resources:
+      - group: ""
+        resources: ["secrets"]
+    verbs: ["create", "update", "patch", "delete"]
+    omitStages:
+      - RequestReceived
+
+  # Log pod exec and attach at RequestResponse level
+  - level: RequestResponse
+    resources:
+      - group: ""
+        resources: ["pods/exec", "pods/attach", "pods/portforward"]
+    omitStages:
+      - RequestReceived
+
+  # Log service account token requests
+  - level: Metadata
+    resources:
+      - group: ""
+        resources: ["serviceaccounts/token"]
+    omitStages:
+      - RequestReceived
+
+  # Log node and persistent volume changes
+  - level: Metadata
+    resources:
+      - group: ""
+        resources: ["nodes", "persistentvolumes"]
+    verbs: ["create", "update", "patch", "delete"]
+    omitStages:
+      - RequestReceived
+
+  # Skip logging read-only requests to common endpoints
+  - level: None
+    resources:
+      - group: ""
+        resources: ["configmaps"]
+        resourceNames: ["kube-root-ca.crt"]
+
+  # Skip logging health checks and metrics
+  - level: None
+    nonResourceURLs:
+      - "/healthz*"
+      - "/readyz*"
+      - "/livez*"
+      - "/metrics"
+
+  # Default: log everything else at Metadata level
+  - level: Metadata
+    omitStages:
+      - RequestReceived

@@ -1,0 +1,12 @@
+# Lua script for extracting labels from audit events
+luaScripts:
+  audit_metrics.lua: |
+    function add_labels(tag, timestamp, record)
+        local new_record = record
+        new_record["verb"] = record["verb"] or "unknown"
+        new_record["resource"] = record["objectRef"] and record["objectRef"]["resource"] or "unknown"
+        new_record["namespace"] = record["objectRef"] and record["objectRef"]["namespace"] or ""
+        new_record["subresource"] = record["objectRef"] and record["objectRef"]["subresource"] or ""
+        new_record["user"] = record["user"] and record["user"]["username"] or "unknown"
+        return 1, timestamp, new_record
+    end

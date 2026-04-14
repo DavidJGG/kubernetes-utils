@@ -1,0 +1,12 @@
+# Pod without a seccomp profile
+# Demonstrates the gap that Kyverno fills
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-no-seccomp
+  namespace: wiredbrain
+spec:
+  containers:
+    - name: app
+      image: busybox:latest
+      command: ["sleep", "3600"]

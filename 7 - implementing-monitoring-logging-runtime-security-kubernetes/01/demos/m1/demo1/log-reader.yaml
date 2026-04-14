@@ -1,0 +1,30 @@
+# Pod for reading audit logs from the control plane node
+# Mounts the host's audit log directory as a volume
+apiVersion: v1
+kind: Pod
+metadata:
+  name: log-reader
+  namespace: kube-system
+spec:
+  nodeSelector:
+    node-role.kubernetes.io/control-plane: "true"
+  containers:
+    - name: reader
+      image: busybox
+      command: ["sleep", "infinity"]
+      volumeMounts:
+        - name: audit-logs
+          mountPath: /var/log/kubernetes/audit
+          readOnly: true
+  volumes:
+    - name: audit-logs
+      hostPath:
+        path: /var/log/kubernetes/audit
+        type: DirectoryOrCreate
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+    - key: node-role.kubernetes.io/master
+      operator: Exists
+      effect: NoSchedule

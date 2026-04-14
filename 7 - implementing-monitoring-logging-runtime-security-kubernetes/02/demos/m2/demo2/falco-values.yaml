@@ -1,0 +1,50 @@
+# Falco Helm values for Demo 2
+# Deploys Falco with custom rules for reverse shell and sensitive file detection
+
+driver:
+  kind: modern_ebpf
+
+falco:
+  # JSON output for easier parsing
+  json_output: true
+  json_include_output_property: true
+  json_include_tags_property: true
+
+  # Log all priority levels for demo
+  priority: debug
+
+  # HTTP output to Falcosidekick
+  http_output:
+    enabled: true
+    url: http://falcosidekick:2801
+    user_agent: falco
+
+# Kubernetes metadata enrichment
+collectors:
+  kubernetes:
+    enabled: true
+
+# Resource limits for demo environment
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# Enable default rules
+falcoctl:
+  artifact:
+    install:
+      enabled: true
+    follow:
+      enabled: true
+  config:
+    artifact:
+      install:
+        refs:
+          - falco-rules:3
+      follow:
+        refs:
+          - falco-rules:3

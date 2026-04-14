@@ -1,0 +1,50 @@
+# Fluent Bit pipeline configuration for audit log metrics
+config:
+  inputs: |
+    [INPUT]
+        Name              tail
+        Path              /var/log/kubernetes/audit/*.log
+        Tag               audit.*
+        Parser            json
+        Refresh_Interval  5
+        Mem_Buf_Limit     50MB
+        Skip_Long_Lines   On
+
+  filters: |
+    [FILTER]
+        Name    lua
+        Match   audit.*
+        Script  /fluent-bit/scripts/audit_metrics.lua
+        Call    add_labels
+
+    [FILTER]
+        Name          log_to_metrics
+        Match         audit.*
+        Tag           metrics.audit
+        Metric_Mode   counter
+        Metric_Name   event_count
+        Metric_Namespace  kubernetes
+        Metric_Subsystem  audit
+        Metric_Description  Kubernetes audit events counter
+        Label_Field   verb
+        Label_Field   resource
+        Label_Field   subresource
+
+  outputs: |
+    [OUTPUT]
+        Name              prometheus_exporter
+        Match             metrics.*
+        Host              0.0.0.0
+        Port              2021
+
+    [OUTPUT]
+        Name              stdout
+        Match             audit.*
+        Format            json_lines
+
+  customParsers: |
+    [PARSER]
+        Name              json
+        Format            json
+        Time_Key          stageTimestamp
+        Time_Format       %Y-%m-%dT%H:%M:%S.%LZ

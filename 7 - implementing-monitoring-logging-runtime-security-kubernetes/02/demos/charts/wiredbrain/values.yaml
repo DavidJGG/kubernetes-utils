@@ -1,0 +1,73 @@
+global:
+  imageRegistry: ""
+  imageTag: "k8s-logging-m1"
+  
+replicaCount:
+  web: 1
+  productsApi: 1
+  stockApi: 1
+  database: 1
+
+image:
+  web:
+    repository: sixeyed/wiredbrain-web
+    tag: ""  # Uses global.imageTag if empty
+  productsApi:
+    repository: sixeyed/wiredbrain-products-api
+    tag: ""
+  stockApi:
+    repository: sixeyed/wiredbrain-stock-api
+    tag: ""
+  database:
+    repository: sixeyed/wiredbrain-db
+    tag: ""
+
+service:
+  web:
+    type: NodePort
+    port: 8080
+    nodePort: 30080
+  productsApi:
+    type: ClusterIP
+    port: 80
+  stockApi:
+    type: ClusterIP
+    port: 8080
+  database:
+    type: ClusterIP
+    port: 5432
+
+resources:
+  web:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+    limits:
+      memory: "256Mi"
+      cpu: "200m"
+  productsApi:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+    limits:
+      memory: "256Mi"
+      cpu: "200m"
+  stockApi:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+    limits:
+      memory: "256Mi"
+      cpu: "200m"
+  database:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+
+database:
+  password: "wired"
+
+environment: "development"

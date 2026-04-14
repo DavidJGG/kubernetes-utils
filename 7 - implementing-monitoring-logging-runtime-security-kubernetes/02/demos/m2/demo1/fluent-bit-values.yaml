@@ -1,0 +1,48 @@
+# Fluent Bit Helm values for Demo 1
+# Collects Falco alerts and sends to Elasticsearch
+
+config:
+  inputs: |
+    [INPUT]
+        Name              tail
+        Tag               falco.*
+        Path              /var/log/containers/falco-*_falco_falco-*.log
+        Parser            cri
+        Refresh_Interval  2
+        Mem_Buf_Limit     5MB
+        Skip_Long_Lines   On
+
+  filters: |
+    [FILTER]
+        Name              parser
+        Match             falco.*
+        Key_Name          message
+        Parser            json_parser
+        Reserve_Data      Off
+
+  outputs: |
+    [OUTPUT]
+        Name              es
+        Match             falco.*
+        Host              elasticsearch
+        Port              9200
+        Index             falco-alerts
+        Suppress_Type_Name On
+        Logstash_Format   Off
+        Trace_Error       On
+
+  customParsers: |
+    [PARSER]
+        Name              json_parser
+        Format            json
+        Time_Key          time
+        Time_Format       %Y-%m-%dT%H:%M:%S.%LZ
+
+# Resource limits for demo environment
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi

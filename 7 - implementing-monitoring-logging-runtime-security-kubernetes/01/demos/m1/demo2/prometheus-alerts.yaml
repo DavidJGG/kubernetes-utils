@@ -1,0 +1,45 @@
+# Security alerting rules for detecting attack patterns
+serverFiles:
+  alerting_rules.yml:
+    groups:
+      - name: security-alerts
+        rules:
+          # Detect privilege escalation via ClusterRoleBinding
+          - alert: ClusterAdminBindingCreated
+            expr: increase(kubernetes_audit_event_count{verb="create",resource="clusterrolebindings"}[5m]) > 0
+            for: 0m
+            labels:
+              severity: critical
+            annotations:
+              summary: "ClusterRoleBinding created"
+              description: "A new ClusterRoleBinding was created. Check for unauthorized privilege escalation."
+
+          # Detect bulk secrets enumeration
+          - alert: BulkSecretsAccess
+            expr: increase(kubernetes_audit_event_count{verb="list",resource="secrets"}[5m]) > 3
+            for: 0m
+            labels:
+              severity: high
+            annotations:
+              summary: "Bulk secrets access detected"
+              description: "Multiple secrets list operations in short time window. Possible credential harvesting."
+
+          # Detect pod exec (container access)
+          - alert: PodExecDetected
+            expr: increase(kubernetes_audit_event_count{verb="get",resource="pods",subresource="exec"}[5m]) > 0
+            for: 0m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Pod exec detected"
+              description: "Someone executed a command inside a pod. Verify this is authorized activity."
+
+          # Detect secrets deletion (covering tracks)
+          - alert: SecretsDeleted
+            expr: increase(kubernetes_audit_event_count{verb="delete",resource="secrets"}[5m]) > 0
+            for: 0m
+            labels:
+              severity: high
+            annotations:
+              summary: "Secrets deleted"
+              description: "Secrets were deleted. Attacker may be covering tracks or disrupting services."

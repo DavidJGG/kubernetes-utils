@@ -1,0 +1,29 @@
+# Kyverno policy requiring containers to have a seccomp profile
+# Catches pods that developers forgot to configure
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-seccomp-profile
+  annotations:
+    policies.kyverno.io/title: Require Seccomp Profile
+    policies.kyverno.io/description: >-
+      Requires all containers to have a seccomp profile set.
+      Extends PSA protection with cluster-wide enforcement and clear error messages.
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: require-seccomp
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      validate:
+        message: "Containers must have a seccomp profile. Set securityContext.seccompProfile.type to RuntimeDefault or Localhost"
+        pattern:
+          spec:
+            containers:
+              - securityContext:
+                  seccompProfile:
+                    type: "RuntimeDefault | Localhost"

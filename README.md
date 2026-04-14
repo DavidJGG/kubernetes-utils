@@ -10,6 +10,7 @@ Cada seccion tiene su propio README con mas detalle:
 - [Seccion 4 - Storage y Scheduling](./4%20-%20config-managing-kubernetes-storage-and-scheduling/README.md)
 - [Seccion 5 - Seguridad en Kubernetes (Defense in Depth)](./5%20-%20configuring-managing-kubernetes-security-2/README.md)
 - [Seccion 6 - Mantenimiento, Monitoreo y Troubleshooting](./6%20-%20maintaining-monitoring-troubleshoot-kubernetes/README.md)
+- [Seccion 7 - Monitoring, Logging y Runtime Security](./7%20-%20implementing-monitoring-logging-runtime-security-kubernetes/README.md)
 
 ## Indice
 
@@ -59,6 +60,12 @@ Cada seccion tiene su propio README con mas detalle:
 | [Troubleshooting: Pending Pods](#troubleshooting-pending-pods) | 6 |
 | [Troubleshooting: Networking](#troubleshooting-networking) | 6 |
 | [Troubleshooting: OOMKilled](#troubleshooting-oomkilled) | 6 |
+| [Audit Logging y Politicas de Auditoria](#audit-logging-y-politicas-de-auditoria) | 7 |
+| [Alertas de Seguridad con Prometheus](#alertas-de-seguridad-con-prometheus) | 7 |
+| [Deteccion de Amenazas en Runtime con Falco](#deteccion-de-amenazas-en-runtime-con-falco) | 7 |
+| [Reglas Personalizadas de Falco y Falcosidekick](#reglas-personalizadas-de-falco-y-falcosidekick) | 7 |
+| [Pod Security Admission (PSA)](#pod-security-admission-psa) | 7 |
+| [Kyverno: Validacion y Mutacion de Pods](#kyverno-validacion-y-mutacion-de-pods) | 7 |
 
 ---
 
@@ -1660,3 +1667,115 @@ helm upgrade guestbook ./guestbook --values ./guestbook/values.yaml
 ```
 
 Detalle: [Seccion 6 README](./6%20-%20maintaining-monitoring-troubleshoot-kubernetes/README.md#troubleshooting-oomkilled)
+
+---
+
+## Audit Logging y Politicas de Auditoria
+
+Conceptos clave:
+- El **API Server** captura toda actividad del cluster. Por defecto la mayoria de clusters no tienen audit logging habilitado
+- Niveles: **None** (nada), **Metadata** (cabeceras sin body), **Request**, **RequestResponse** (request y response completos)
+- RBAC y operaciones exec/attach deben auditarse a **RequestResponse**; secrets solo a **Metadata**
+- Usar **Fluent Bit** para recolectar, filtrar y reenviar logs fuera del nodo a almacenamiento externo
+
+```bash
+kubectl exec -n kube-system log-reader -- cat /var/log/kubernetes/audit/audit.log
+kubectl exec -n kube-system log-reader -- tail -5 /var/log/kubernetes/audit/audit.log | jq -r '[.verb, .objectRef.resource] | @tsv'
+kubectl create clusterrolebinding attacker-admin --clusterrole=cluster-admin --user=attacker@example.com
+kubectl exec -n kube-system log-reader -- cat /var/log/kubernetes/audit/filtered.log | \
+  jq -r 'select(.objectRef.resource == "clusterrolebindings") | [.verb, .objectRef.name, .user.username] | @tsv'
+```
+
+Detalle: [Seccion 7 README](./7%20-%20implementing-monitoring-logging-runtime-security-kubernetes/README.md#audit-logging-y-politicas-de-auditoria)
+
+---
+
+## Alertas de Seguridad con Prometheus
+
+Conceptos clave:
+- Fluent Bit transforma logs de auditoria en metricas Prometheus con el filtro **log_to_metrics** (puerto 2021)
+- Reglas clave: **ClusterAdminBindingCreated**, **BulkSecretsAccess** (>3 en 5min), **PodExecDetected**
+- Usar la funcion **increase()** de PromQL para detectar picos de actividad sospechosa
+
+```bash
+helm upgrade --install prometheus ./charts/prometheus-27.0.0.tgz \
+  -f prometheus-values.yaml -f prometheus-scrape.yaml -f prometheus-alerts.yaml \
+  --namespace monitoring --create-namespace --wait
+curl -s http://localhost:9090/api/v1/alerts | jq '.data.alerts[] | {alertname: .labels.alertname, state: .state}'
+```
+
+Detalle: [Seccion 7 README](./7%20-%20implementing-monitoring-logging-runtime-security-kubernetes/README.md#alertas-de-seguridad-con-prometheus)
+
+---
+
+## Deteccion de Amenazas en Runtime con Falco
+
+Conceptos clave:
+- **Falco** usa **eBPF** para monitorear system calls de todos los contenedores a nivel kernel, detectando ataques invisibles al API Server
+- Driver **modern_ebpf**: no requiere cabeceras del kernel, compatible con Linux moderno
+- Reglas por defecto: lectura de `/etc/shadow`, conexiones al API Server desde contenedores, busqueda de claves privadas
+
+```bash
+helm install falco ./charts/falco-7.2.0.tgz -f falco-values.yaml --namespace falco --create-namespace --wait --timeout 5m
+kubectl exec -n wiredbrain deploy/wiredbrain-web -- cat /etc/shadow
+curl "http://localhost:9200/falco-alerts/_search?q=rule.keyword:*sensitive*+AND+output_fields.k8smeta.ns.name:wiredbrain&pretty"
+```
+
+Detalle: [Seccion 7 README](./7%20-%20implementing-monitoring-logging-runtime-security-kubernetes/README.md#deteccion-de-amenazas-en-runtime-con-falco)
+
+---
+
+## Reglas Personalizadas de Falco y Falcosidekick
+
+Conceptos clave:
+- Reglas personalizadas utiles: **Reverse Shell Spawned** (CRITICAL), **Service Account Token Read** (WARNING), **Crypto Miner Execution**, **Package Manager In Container**
+- **Falcosidekick**: recibe alertas de Falco y las reenvía a Prometheus, Slack y PagerDuty (metricas en puerto 2801)
+- Alertas Prometheus sobre Falco: **FalcoCriticalAlert**, **ReverseShellDetected**, **SensitiveFileAccess**
+
+```bash
+helm install falcosidekick ./charts/falcosidekick-0.9.3.tgz -f falcosidekick-values.yaml --namespace falco --wait
+kubectl logs -n falco -l app.kubernetes.io/name=falco -c falco --tail=500 | \
+  Where-Object { $_ -match "^\{" } | ForEach-Object { $_ | ConvertFrom-Json } | \
+  Where-Object { $_.output_fields."k8s.ns.name" -eq "wiredbrain" } | Select-Object time, rule, priority | Format-Table
+```
+
+Detalle: [Seccion 7 README](./7%20-%20implementing-monitoring-logging-runtime-security-kubernetes/README.md#reglas-personalizadas-de-falco-y-falcosidekick)
+
+---
+
+## Pod Security Admission (PSA)
+
+Conceptos clave:
+- PSA aplica estandares de seguridad via labels en namespaces. Perfiles: **Privileged**, **Baseline** (sin contenedores privilegiados, sin hostPath), **Restricted** (no root, seccomp requerido)
+- Modos: **enforce** (rechaza), **audit** (registra), **warn** (advierte)
+- PSA solo evalua pods en creacion/actualizacion; no evicta pods existentes
+
+```bash
+kubectl apply -f namespaces/baseline-namespace.yaml
+kubectl apply -f pods/privileged-pod.yaml -n wiredbrain    # bloqueado
+kubectl apply -f pods/compliant-pod.yaml -n wiredbrain     # ok
+kubectl apply -f namespaces/restricted-namespace.yaml
+kubectl get pods -n wiredbrain                             # existentes siguen corriendo
+```
+
+Detalle: [Seccion 7 README](./7%20-%20implementing-monitoring-logging-runtime-security-kubernetes/README.md#pod-security-admission-psa)
+
+---
+
+## Kyverno: Validacion y Mutacion de Pods
+
+Conceptos clave:
+- **Kyverno** es un admission controller con capacidad de **validar** (rechazar) y **mutar** (modificar automaticamente) pods al momento de creacion
+- Politica `validate`: rechaza pods sin `seccompProfile`. Politica `mutate`: inyecta `RuntimeDefault` si no esta presente
+- **Seccomp** modo 2 = filtro activo (bloquea `unshare` y otros syscalls de escape de contenedor)
+- Orden de ejecucion: mutacion primero, luego validacion
+
+```bash
+helm install kyverno ./charts/kyverno-3.6.2.tgz -f kyverno-values.yaml --namespace kyverno --create-namespace --wait --timeout 5m
+kubectl apply -f policies/require-seccomp.yaml
+kubectl apply -f policies/mutate-seccomp.yaml
+kubectl rollout restart deployment/wiredbrain-web -n wiredbrain
+kubectl exec deploy/wiredbrain-web -n wiredbrain -- grep Seccomp /proc/1/status   # debe mostrar Seccomp: 2
+```
+
+Detalle: [Seccion 7 README](./7%20-%20implementing-monitoring-logging-runtime-security-kubernetes/README.md#kyverno-validacion-y-mutacion-de-pods)

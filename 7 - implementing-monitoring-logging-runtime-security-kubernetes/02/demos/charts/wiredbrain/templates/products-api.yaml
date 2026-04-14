@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "wiredbrain.fullname" . }}-products-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "wiredbrain.labels" . | nindent 4 }}
+    component: products-api
+spec:
+  replicas: {{ .Values.replicaCount.productsApi }}
+  selector:
+    matchLabels:
+      {{- include "wiredbrain.selectorLabels" . | nindent 6 }}
+      component: products-api
+  template:
+    metadata:
+      labels:
+        {{- include "wiredbrain.selectorLabels" . | nindent 8 }}
+        component: products-api
+    spec:
+      containers:
+      - name: api
+        image: {{ include "wiredbrain.image" (dict "root" . "image" .Values.image.productsApi) }}
+        ports:
+        - containerPort: 80
+        env:
+        - name: ConnectionStrings__ProductsDb
+          value: "Host=products-db;Database=postgres;Username=postgres;Password={{ .Values.database.password }}"
+        resources:
+          {{- toYaml .Values.resources.productsApi | nindent 10 }}
+        readinessProbe:
+          httpGet:
+            path: /products
+            port: 80
+          initialDelaySeconds: 60
+          periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: products-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "wiredbrain.labels" . | nindent 4 }}
+    component: products-api
+spec:
+  selector:
+    {{- include "wiredbrain.selectorLabels" . | nindent 4 }}
+    component: products-api
+  ports:
+  - port: {{ .Values.service.productsApi.port }}
+    targetPort: 80
+  type: {{ .Values.service.productsApi.type }}

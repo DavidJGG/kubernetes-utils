@@ -1,0 +1,56 @@
+# Fluent Bit pipeline configuration for audit log collection
+config:
+  inputs: |
+    [INPUT]
+        Name              tail
+        Path              /var/log/kubernetes/audit/*.log
+        Tag               audit.*
+        Parser            json
+        Refresh_Interval  5
+        Mem_Buf_Limit     50MB
+        Buffer_Max_Size   1MB
+        Skip_Long_Lines   Off
+
+  outputs: |
+    [OUTPUT]
+        Name              file
+        Match             audit.*
+        Path              /var/log/kubernetes/audit
+        File              filtered.log
+        Format            plain
+
+  filters: |
+    [FILTER]
+        Name              lua
+        Match             audit.*
+        Script            /fluent-bit/scripts/filter.lua
+        Call              exclude_system_users
+
+  customParsers: |
+    [PARSER]
+        Name              json
+        Format            json
+        Time_Key          stageTimestamp
+        Time_Format       %Y-%m-%dT%H:%M:%S.%LZ
+
+luaScripts:
+  filter.lua: |
+    function exclude_system_users(tag, timestamp, record)
+      local user = record["user"]
+      if user and user["username"] then
+        local username = user["username"]
+        -- Keep system:admin (human users), filter out system components
+        if username == "system:admin" then
+          return 0, 0, 0  -- keep
+        end
+        -- Drop service accounts and other system users
+        if username:match("^system:serviceaccount:") or
+           username:match("^system:node:") or
+           username:match("^system:kube%-") or
+           username:match("^system:apiserver") or
+           username:match("^system:k3s%-") then
+          return -1, 0, 0  -- drop record
+        end
+      end
+      return 0, 0, 0  -- keep record
+    end

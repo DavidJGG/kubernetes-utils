@@ -1,0 +1,17 @@
+# Prometheus scrape configuration for Fluent Bit metrics
+extraScrapeConfigs: |
+  - job_name: fluent-bit
+    kubernetes_sd_configs:
+      - role: pod
+        namespaces:
+          names:
+            - logging
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+        action: keep
+        regex: fluent-bit
+      - source_labels: [__meta_kubernetes_pod_ip]
+        action: replace
+        target_label: __address__
+        regex: (.+)
+        replacement: ${1}:2021

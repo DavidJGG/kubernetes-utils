@@ -1,0 +1,28 @@
+# Kyverno mutation policy to inject default seccomp profile
+# Adds RuntimeDefault profile when containers don't specify one
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: mutate-seccomp-default
+  annotations:
+    policies.kyverno.io/title: Mutate Seccomp Default
+    policies.kyverno.io/description: >-
+      Injects the RuntimeDefault seccomp profile for containers that don't
+      specify one. Provides security by default without requiring developers
+      to set it explicitly.
+spec:
+  rules:
+    - name: add-seccomp-profile
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      mutate:
+        patchStrategicMerge:
+          spec:
+            containers:
+              - (name): "*"
+                securityContext:
+                  +(seccompProfile):
+                    type: RuntimeDefault

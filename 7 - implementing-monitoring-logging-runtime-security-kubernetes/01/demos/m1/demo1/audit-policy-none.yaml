@@ -1,0 +1,7 @@
+# Minimal audit policy - logs nothing
+# Used to demonstrate the gap before enabling security audit logging
+apiVersion: audit.k8s.io/v1
+kind: Policy
+rules:
+  # Log nothing
+  - level: None

@@ -1,0 +1,88 @@
+# Production environment values
+environment: "production"
+
+global:
+  imageTag: "25-m1-prod"
+
+replicaCount:
+  web: 5
+  productsApi: 3
+  stockApi: 3
+  database: 1
+
+resources:
+  web:
+    requests:
+      memory: "256Mi"
+      cpu: "200m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  productsApi:
+    requests:
+      memory: "256Mi"
+      cpu: "200m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  stockApi:
+    requests:
+      memory: "256Mi"
+      cpu: "200m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  database:
+    requests:
+      memory: "512Mi"
+      cpu: "500m"
+    limits:
+      memory: "1Gi"
+      cpu: "1000m"
+
+service:
+  web:
+    type: LoadBalancer
+
+# Production autoscaling
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 20
+  targetCPUUtilizationPercentage: 60
+
+# Production monitoring
+monitoring:
+  enabled: true
+
+# Production security settings
+database:
+  password: "super-secure-production-password"
+
+# Node placement for production workloads
+nodeSelector:
+  kubernetes.io/os: linux
+  node-type: production
+
+# Tolerations for dedicated nodes
+tolerations:
+- key: "production"
+  operator: "Equal"
+  value: "true"
+  effect: "NoSchedule"
+
+# Anti-affinity for high availability
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+    - weight: 100
+      podAffinityTerm:
+        labelSelector:
+          matchExpressions:
+          - key: component
+            operator: In
+            values:
+            - web-app
+            - products-api
+            - stock-api
+        topologyKey: kubernetes.io/hostname
