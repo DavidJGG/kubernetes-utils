@@ -11,6 +11,7 @@ Cada seccion tiene su propio README con mas detalle:
 - [Seccion 5 - Seguridad en Kubernetes (Defense in Depth)](./5%20-%20configuring-managing-kubernetes-security-2/README.md)
 - [Seccion 6 - Mantenimiento, Monitoreo y Troubleshooting](./6%20-%20maintaining-monitoring-troubleshoot-kubernetes/README.md)
 - [Seccion 7 - Monitoring, Logging y Runtime Security](./7%20-%20implementing-monitoring-logging-runtime-security-kubernetes/README.md)
+- [Seccion 8 - Kubernetes System Hardening](./8%20-%20kubernetes-system-hardening/README.md)
 
 ## Indice
 
@@ -66,6 +67,16 @@ Cada seccion tiene su propio README con mas detalle:
 | [Reglas Personalizadas de Falco y Falcosidekick](#reglas-personalizadas-de-falco-y-falcosidekick) | 7 |
 | [Pod Security Admission (PSA)](#pod-security-admission-psa) | 7 |
 | [Kyverno: Validacion y Mutacion de Pods](#kyverno-validacion-y-mutacion-de-pods) | 7 |
+| [Permisos de Archivos del Control Plane](#permisos-de-archivos-del-control-plane) | 8 |
+| [Seguridad de etcd con mTLS](#seguridad-de-etcd-con-mtls) | 8 |
+| [Hardening del API Server (System Hardening)](#hardening-del-api-server-system-hardening) | 8 |
+| [Restriccion de Acceso de Red al Control Plane](#restriccion-de-acceso-de-red-al-control-plane) | 8 |
+| [Parametros del Kernel y Seguridad de Nodos](#parametros-del-kernel-y-seguridad-de-nodos) | 8 |
+| [Limitacion de Privilegios del Kubelet (NodeRestriction)](#limitacion-de-privilegios-del-kubelet-noderestriction) | 8 |
+| [Restriccion de Acceso Externo al Kubelet](#restriccion-de-acceso-externo-al-kubelet) | 8 |
+| [Auditoria de ClusterRoles y RoleBindings](#auditoria-de-clusterroles-y-rolebindings) | 8 |
+| [RoleBindings Restringidos y Least Privilege](#rolebindings-restringidos-y-least-privilege) | 8 |
+| [Seguridad de Tokens de Service Accounts](#seguridad-de-tokens-de-service-accounts) | 8 |
 
 ---
 
@@ -1779,3 +1790,181 @@ kubectl exec deploy/wiredbrain-web -n wiredbrain -- grep Seccomp /proc/1/status 
 ```
 
 Detalle: [Seccion 7 README](./7%20-%20implementing-monitoring-logging-runtime-security-kubernetes/README.md#kyverno-validacion-y-mutacion-de-pods)
+
+---
+
+## Permisos de Archivos del Control Plane
+
+Conceptos clave:
+- Los **static Pod manifests** definen componentes del control plane. El kubelet los vigila directamente, cambios afectan el cluster sin pasar por el API Server
+- Los **kubeconfig files** representan identidad y autoridad. Si se exponen, un atacante obtiene acceso legitimo
+- Los **certificados y claves privadas** establecen la confianza. Incluso acceso de lectura permite suplantacion
+- El **CIS Benchmark** define que archivos criticos deben ser propiedad de **root** con permisos restrictivos (600)
+
+```bash
+ls -l /etc/kubernetes/manifests/
+chown root:root /etc/kubernetes/manifests/*.yaml
+chmod 600 /etc/kubernetes/manifests/*.yaml
+ls -l /etc/kubernetes/*.conf
+chown root:root /etc/kubernetes/*.conf
+chmod 600 /etc/kubernetes/*.conf
+chown root:root /etc/kubernetes/pki/*.key
+chmod 600 /etc/kubernetes/pki/*.key
+```
+
+Detalle: [Seccion 8 README](./8%20-%20kubernetes-system-hardening/README.md#permisos-de-archivos-del-control-plane)
+
+---
+
+## Seguridad de etcd con mTLS
+
+Conceptos clave:
+- **etcd** es el source of truth del cluster. Si se compromete, todo el cluster se compromete
+- Usa **mutual TLS (mTLS)**: solo clientes autenticados conectan, trafico cifrado en transito
+- El directorio de datos debe tener ownership de root/etcd con permisos **700**
+
+```bash
+kubectl get pods -n kube-system -l component=etcd
+kubectl exec -it etcd-<NODE> -n kube-system -- etcdctl endpoint health \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key
+kubectl exec -it etcd-<NODE> -n kube-system -- etcdctl endpoint health  # sin certs = debe fallar
+chmod 700 /var/lib/etcd
+```
+
+Detalle: [Seccion 8 README](./8%20-%20kubernetes-system-hardening/README.md#seguridad-de-etcd-con-mtls)
+
+---
+
+## Hardening del API Server (System Hardening)
+
+Conceptos clave:
+- Flags criticos: `--authorization-mode=Node,RBAC`, `--anonymous-auth=false`, `--tls-cert-file`, `--audit-log-path`
+- El CIS Benchmark identifica flags inseguros que deben deshabilitarse y protecciones que deben habilitarse
+- Verificar que requests anonimos son rechazados y RBAC esta activo
+
+```bash
+kubectl get pod kube-apiserver-<NODE> -n kube-system -o yaml | grep -E "authorization-mode|anonymous-auth|tls-cert|enable-admission"
+kubectl auth can-i create pods --as=system:anonymous   # debe retornar "no"
+kubectl auth can-i get pods                             # usuario autenticado
+```
+
+Detalle: [Seccion 8 README](./8%20-%20kubernetes-system-hardening/README.md#hardening-del-api-server)
+
+---
+
+## Restriccion de Acceso de Red al Control Plane
+
+Conceptos clave:
+- Las redes Kubernetes son **flat** por defecto: comunicacion interna sin restricciones
+- **Firewalls** definen el perimetro (nodos), **Network Policies** limitan movimiento lateral (Pods)
+- Solo los paths requeridos deben existir; todo lo demas explicitamente bloqueado
+
+```bash
+kubectl get pods -n kube-system -l "component in (kube-controller-manager,kube-scheduler)"
+kubectl apply -f network-policy-restrict.yaml
+kubectl run test-pod --image=busybox --rm -it --restart=Never -- wget --timeout=5 -qO- <TARGET_POD_IP>
+```
+
+Detalle: [Seccion 8 README](./8%20-%20kubernetes-system-hardening/README.md#restriccion-de-acceso-de-red-al-control-plane)
+
+---
+
+## Parametros del Kernel y Seguridad de Nodos
+
+Conceptos clave:
+- **Kernel parameters** permisivos facilitan container escapes y escalada de privilegios
+- El flag **`--protect-kernel-defaults`** del kubelet verifica parametros criticos al inicio; si el nodo esta mal configurado, el kubelet se niega a iniciar
+- El CIS Benchmark asume que los parametros se aplican, no solo se documentan
+
+```bash
+sysctl net.ipv4.ip_forward net.ipv4.conf.all.send_redirects net.ipv4.conf.all.accept_redirects
+ps aux | grep kubelet | grep protect-kernel-defaults
+```
+
+Detalle: [Seccion 8 README](./8%20-%20kubernetes-system-hardening/README.md#parametros-del-kernel-y-seguridad-de-nodos)
+
+---
+
+## Limitacion de Privilegios del Kubelet (NodeRestriction)
+
+Conceptos clave:
+- El **NodeRestriction admission controller** impide que nodos comprometidos escalen privilegios o modifiquen recursos cluster-wide
+- Un nodo solo puede actualizar su propio objeto Node, reportar status y leer Pods asignados a el
+- Reduce el **blast radius** de un worker node comprometido
+
+```bash
+kubectl get pod kube-apiserver-<NODE> -n kube-system -o yaml | grep enable-admission-plugins
+kubectl label node <NODE_NAME> test-label=value   # nodo puede labelarse a si mismo
+```
+
+Detalle: [Seccion 8 README](./8%20-%20kubernetes-system-hardening/README.md#limitacion-de-privilegios-del-kubelet-noderestriction)
+
+---
+
+## Restriccion de Acceso Externo al Kubelet
+
+Conceptos clave:
+- El kubelet expone una API en puerto **10250** HTTPS. Si es accesible externamente, un atacante podria listar/eliminar Pods o escalar privilegios
+- Flags criticos: `--anonymous-auth=false`, `--authentication-token-webhook=true`, `--authorization-mode=Webhook`
+
+```bash
+curl -sk https://localhost:10250/pods    # debe retornar Unauthorized
+curl -sk https://localhost:10250/healthz  # debe retornar Unauthorized
+ps aux | grep kubelet | grep -E "anonymous-auth|authorization-mode|webhook"
+```
+
+Detalle: [Seccion 8 README](./8%20-%20kubernetes-system-hardening/README.md#restriccion-de-acceso-externo-al-kubelet)
+
+---
+
+## Auditoria de ClusterRoles y RoleBindings
+
+Conceptos clave:
+- Red flags: **cluster-admin** sin justificacion, wildcards (`*`) en verbs/resources, service accounts con acceso cluster-wide
+- Auditar RBAC regularmente para detectar permisos excesivos antes de que sean explotados
+
+```bash
+kubectl get clusterroles
+kubectl describe clusterrole cluster-admin
+kubectl get clusterrolebindings
+kubectl describe clusterrolebinding cluster-admin
+kubectl get rolebindings -A -o wide
+```
+
+Detalle: [Seccion 8 README](./8%20-%20kubernetes-system-hardening/README.md#auditoria-de-clusterroles-y-rolebindings)
+
+---
+
+## RoleBindings Restringidos y Least Privilege
+
+Conceptos clave:
+- Roles **namespace-scoped** restringen acciones a un solo namespace, previniendo modificaciones fuera del scope
+- Cada workload debe tener un **service account dedicado** con solo los permisos necesarios
+
+```bash
+kubectl create namespace rbac-demo
+kubectl create role pod-reader --verb=get,list,watch --resource=pods -n rbac-demo
+kubectl create serviceaccount pod-reader-sa -n rbac-demo
+kubectl create rolebinding pod-reader-binding --role=pod-reader --serviceaccount=rbac-demo:pod-reader-sa -n rbac-demo
+kubectl auth can-i list pods -n rbac-demo --as=system:serviceaccount:rbac-demo:pod-reader-sa    # yes
+kubectl auth can-i delete pods -n rbac-demo --as=system:serviceaccount:rbac-demo:pod-reader-sa  # no
+```
+
+Detalle: [Seccion 8 README](./8%20-%20kubernetes-system-hardening/README.md#rolebindings-restringidos-y-least-privilege)
+
+---
+
+## Seguridad de Tokens de Service Accounts
+
+Conceptos clave:
+- Por defecto todo Pod recibe un token incluso si no necesita acceso al API. Deshabilitar con `automountServiceAccountToken: false`
+- Tokens de larga duracion aumentan la ventana de ataque. Usar tokens de corta duracion con rotacion automatica
+- El CIS Benchmark recomienda deshabilitar automount a menos que el workload lo requiera explicitamente
+
+```bash
+kubectl create namespace sa-token-demo
+kubectl exec -n sa-token-demo no-token-pod -- ls /var/run/secrets/kubernetes.io/serviceaccount/  # debe fallar
+kubectl exec -n sa-token-demo with-token-pod -- ls /var/run/secrets/kubernetes.io/serviceaccount/ # muestra token
+```
+
+Detalle: [Seccion 8 README](./8%20-%20kubernetes-system-hardening/README.md#seguridad-de-tokens-de-service-accounts)
