@@ -49,23 +49,12 @@ chmod 600 /etc/kubernetes/*.conf
 
 # --- Auditar certificados y claves privadas ---
 ls -l /etc/kubernetes/pki/
-ls -l /etc/kubernetes/pki/*.key
 
 # Corregir ownership de claves privadas
 chown root:root /etc/kubernetes/pki/*.key
 
 # Corregir permisos de claves privadas (nunca world-readable)
 chmod 600 /etc/kubernetes/pki/*.key
-
-# --- Validar estado final ---
-# Static Pod manifests
-ls -l /etc/kubernetes/manifests/
-
-# Kubeconfig files
-ls -l /etc/kubernetes/*.conf
-
-# Certificados y claves privadas
-ls -l /etc/kubernetes/pki/
 ```
 
 ---
@@ -85,14 +74,10 @@ Conceptos clave:
 kubectl get pods -n kube-system -l component=etcd
 
 # Inspeccionar el manifiesto de etcd para verificar flags de TLS
-cat /etc/kubernetes/manifests/etcd.yaml
 # Buscar: --cert-file, --key-file, --trusted-ca-file, --peer-cert-file, --peer-key-file
+cat /etc/kubernetes/manifests/etcd.yaml
 
-# Alternativa: inspeccionar desde kubectl
-kubectl get pod etcd-<NODE_NAME> -n kube-system -o yaml | grep -E "cert-file|key-file|trusted-ca"
-
-# --- Verificar acceso autenticado (cliente confiable) ---
-# Exec en el contenedor de etcd (etcdctl esta dentro del contenedor)
+# Exec en el contenedor de etcd (etcdctl esta disponible dentro del contenedor)
 kubectl exec -it etcd-<NODE_NAME> -n kube-system -- sh
 
 # Dentro del contenedor: verificar con certificados (debe retornar healthy)
@@ -101,8 +86,7 @@ etcdctl endpoint health \
   --cert=/etc/kubernetes/pki/etcd/server.crt \
   --key=/etc/kubernetes/pki/etcd/server.key
 
-# --- Verificar que acceso no autenticado es rechazado ---
-# Sin certificados (debe fallar)
+# Verificar que acceso no autenticado es rechazado (debe fallar)
 etcdctl endpoint health
 
 # Salir del contenedor
@@ -134,23 +118,16 @@ Conceptos clave:
 # Obtener el nombre del Pod del API Server
 kubectl get pods -n kube-system -l component=kube-apiserver
 
-# Inspeccionar los flags de startup del API Server
+# Verificar flags de seguridad del API Server
+# Buscar: --authorization-mode=Node,RBAC, --anonymous-auth=false,
+#         --tls-cert-file, --tls-private-key-file, --audit-log-path, --audit-policy-file
 kubectl get pod kube-apiserver-<NODE_NAME> -n kube-system -o yaml | grep -E "\-\-authorization-mode|\-\-anonymous-auth|\-\-tls-cert-file|\-\-tls-private-key-file|\-\-audit-log-path|\-\-audit-policy-file|\-\-enable-admission-plugins"
 
-# Verificar flags directamente desde el manifiesto
-cat /etc/kubernetes/manifests/kube-apiserver.yaml | grep -E "authorization-mode|anonymous-auth|tls-cert|tls-private|audit-log|audit-policy"
-
-# --- Verificar que RBAC esta activo ---
-# Simular request no autenticado (debe retornar "no")
+# Simular request no autenticado (debe retornar "no" si RBAC esta activo)
 kubectl auth can-i create pods --as=system:anonymous
 
-# --- Verificar acceso autenticado ---
-# Con kubeconfig valido, un usuario autorizado puede consultar recursos
+# Verificar acceso autenticado
 kubectl get pods
-
-# Verificar que el usuario actual tiene permisos especificos
-kubectl auth can-i get pods
-kubectl auth can-i create deployments
 ```
 
 ---
@@ -166,7 +143,7 @@ Conceptos clave:
 - El CIS Benchmark enfatiza que solo los paths requeridos deben existir; todo lo demas debe estar **explicitamente bloqueado**
 
 ```bash
-# --- Identificar Pods del control plane ---
+# Identificar Pods del control plane (controller manager y scheduler)
 kubectl get pods -n kube-system -l "component in (kube-controller-manager,kube-scheduler)"
 
 # Ver puertos del controller manager
@@ -176,36 +153,18 @@ kubectl get pod kube-controller-manager-<NODE_NAME> -n kube-system -o yaml | gre
 kubectl get pod kube-scheduler-<NODE_NAME> -n kube-system -o yaml | grep -E "port|bind"
 
 # --- Firewall rules (conceptual, para nodos reales) ---
-# Permitir trafico al API Server solo desde nodos del control plane
-iptables -A INPUT -p tcp --dport 6443 -s <CONTROL_PLANE_CIDR> -j ACCEPT
-iptables -A INPUT -p tcp --dport 6443 -j DROP
-
+# En produccion: permitir trafico al API Server (puerto 6443) solo desde control plane
 # Bloquear acceso externo al controller manager (puerto 10257) y scheduler (puerto 10259)
-iptables -A INPUT -p tcp --dport 10257 -j DROP
-iptables -A INPUT -p tcp --dport 10259 -j DROP
 
-# --- Network Policy para restringir movimiento lateral entre Pods ---
-# Crear el archivo de network policy
-cat <<EOF > network-policy-restrict.yaml
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: deny-all-ingress
-  namespace: default
-spec:
-  podSelector: {}
-  policyTypes:
-  - Ingress
-EOF
-
-# Aplicar la network policy
+# --- Crear network policy para restringir trafico entre Pods ---
+# Crear archivo network-policy-restrict.yaml con editor (e.g. nano)
+# Contenido: deny-all ingress para el namespace default
 kubectl apply -f network-policy-restrict.yaml
 
-# --- Verificar enforcement de la network policy ---
-# Listar Pods y obtener IP de un Pod destino
+# Verificar Pods disponibles y obtener IP de un Pod destino
 kubectl get pods -o wide
 
-# Lanzar pod temporal para probar conectividad
+# Lanzar pod temporal para probar que la network policy bloquea el trafico
 kubectl run test-pod --image=busybox --rm -it --restart=Never -- wget --timeout=5 -qO- <TARGET_POD_IP>
 # Si la network policy esta activa, la conexion debe fallar
 ```
@@ -223,31 +182,26 @@ Conceptos clave:
 - El CIS Benchmark asume que los kernel parameters se **aplican**, no solo se documentan
 
 ```bash
-# --- En Docker Desktop: exec al contenedor del control plane ---
+# En Docker Desktop: exec al contenedor del control plane para acceder al entorno del nodo
 docker exec -it <CONTAINER_NAME> bash
 
-# --- Auditar kernel parameters (read-only) ---
-# Estos valores controlan el comportamiento de red a bajo nivel
+# Auditar kernel parameters de red (read-only)
+# Valores seguros esperados (CIS):
+#   net.ipv4.ip_forward = 1 (requerido por Kubernetes)
+#   net.ipv4.conf.all.send_redirects = 0
+#   net.ipv4.conf.all.accept_redirects = 0
 sysctl net.ipv4.ip_forward
 sysctl net.ipv4.conf.all.send_redirects
 sysctl net.ipv4.conf.all.accept_redirects
-sysctl net.ipv4.conf.default.send_redirects
-sysctl net.ipv4.conf.default.accept_redirects
 
-# Valores seguros esperados (CIS):
-# net.ipv4.ip_forward = 1 (requerido por Kubernetes)
-# net.ipv4.conf.all.send_redirects = 0
-# net.ipv4.conf.all.accept_redirects = 0
-
-# --- Inspeccionar como se inicia el kubelet ---
-ps aux | grep kubelet
-# Buscar el flag: --protect-kernel-defaults=true
-
-# --- Snapshot de la configuracion actual del kernel ---
+# Snapshot de la configuracion actual del kernel
 sysctl -a | grep -E "ip_forward|send_redirects|accept_redirects"
 
+# Inspeccionar flags de inicio del kubelet
+# Buscar el flag: --protect-kernel-defaults=true
+ps aux | grep kubelet
+
 # --- En produccion: habilitar protect-kernel-defaults ---
-# Editar la configuracion del kubelet
 # En /var/lib/kubelet/config.yaml agregar:
 #   protectKernelDefaults: true
 # Reiniciar el kubelet:
@@ -267,24 +221,22 @@ Conceptos clave:
 - El CIS Benchmark recomienda explicitamente habilitar NodeRestriction
 
 ```bash
-# --- Verificar admission controllers habilitados ---
+# Verificar admission controllers habilitados
 kubectl get pod kube-apiserver-<NODE_NAME> -n kube-system -o yaml | grep enable-admission-plugins
 
 # --- Habilitar NodeRestriction (si no esta activo) ---
-# Editar el manifiesto del API Server
-sudo vi /etc/kubernetes/manifests/kube-apiserver.yaml
-# Buscar: --enable-admission-plugins=
-# Agregar NodeRestriction al valor, ej:
+# Editar el manifiesto del API Server y agregar NodeRestriction al flag:
 #   --enable-admission-plugins=NodeRestriction
 # El API Server se reinicia automaticamente al guardar
+sudo vi /etc/kubernetes/manifests/kube-apiserver.yaml
 
 # Verificar que el admission controller esta activo despues del reinicio
 kubectl get pod kube-apiserver-<NODE_NAME> -n kube-system -o yaml | grep enable-admission-plugins
 
-# --- Verificar identidades de nodos ---
+# Verificar nodos disponibles
 kubectl get nodes
 
-# --- Probar que un nodo puede labelarse a si mismo ---
+# Demostrar que un nodo puede labelarse a si mismo (accion permitida por NodeRestriction)
 kubectl label node <NODE_NAME> test-label=hardening-demo
 
 # Verificar el label
@@ -301,30 +253,24 @@ kubectl label node <NODE_NAME> test-label-
 Conceptos clave:
 - El kubelet expone una **API en cada nodo** (puerto 10250 HTTPS) para gestionar Pods, metricas y operaciones administrativas
 - Un atacante que alcance la Kubelet API podria listar, eliminar o manipular Pods o **escalar privilegios al host**
-- El CIS Benchmark recomienda: binding del kubelet a **localhost** o interfaz interna, uso de firewall rules, y habilitacion de autenticacion
+- El CIS Benchmark recomienda: binding del kubelet a localhost o interfaz interna, uso de firewall rules, y habilitacion de autenticacion
 - Flags criticos del kubelet: `--anonymous-auth=false`, `--authentication-token-webhook=true`, `--authorization-mode=Webhook`
 - Incluso endpoints basicos como health checks deben estar protegidos
 
 ```bash
-# --- En Docker Desktop: exec al contenedor ---
+# En Docker Desktop: exec al contenedor del control plane
 docker exec -it <CONTAINER_NAME> bash
 
-# --- Intentar acceder a la Kubelet API sin credenciales ---
-# Consultar pods (debe retornar Unauthorized)
+# Intentar acceder a la Kubelet API sin credenciales (debe retornar Unauthorized)
 curl -sk https://localhost:10250/pods
-
-# Consultar health check (debe retornar Unauthorized)
 curl -sk https://localhost:10250/healthz
 
-# --- Inspeccionar configuracion del kubelet ---
+# Inspeccionar flags de seguridad del kubelet
+# Buscar: --anonymous-auth=false, --authentication-token-webhook=true, --authorization-mode=Webhook
 ps aux | grep kubelet
-# Verificar los flags de seguridad:
-#   --anonymous-auth=false
-#   --authentication-token-webhook=true
-#   --authorization-mode=Webhook
 
 # --- En produccion: configurar kubelet seguro ---
-# Editar /var/lib/kubelet/config.yaml
+# Editar /var/lib/kubelet/config.yaml:
 #   authentication:
 #     anonymous:
 #       enabled: false
@@ -334,11 +280,6 @@ ps aux | grep kubelet
 #     mode: Webhook
 # Reiniciar kubelet:
 systemctl restart kubelet
-
-# --- Bloquear acceso externo con firewall ---
-# Solo permitir acceso al kubelet desde el control plane
-iptables -A INPUT -p tcp --dport 10250 -s <CONTROL_PLANE_IP> -j ACCEPT
-iptables -A INPUT -p tcp --dport 10250 -j DROP
 ```
 
 ---
@@ -352,29 +293,22 @@ Conceptos clave:
 - El CIS Benchmark enfatiza: auditar roles y bindings regularmente, evitar cluster-admin o wildcards salvo que sea estrictamente necesario, scoping de service accounts a sus workloads
 
 ```bash
-# --- Listar todos los ClusterRoles ---
+# Listar todos los ClusterRoles
 kubectl get clusterroles
 
-# --- Inspeccionar cluster-admin (ejemplo de permisos excesivos) ---
-kubectl describe clusterrole cluster-admin
+# Inspeccionar cluster-admin (ejemplo de permisos excesivos)
 # Permite TODAS las acciones en TODOS los recursos del cluster
+kubectl describe clusterrole cluster-admin
 
-# --- Listar ClusterRoleBindings ---
+# Listar ClusterRoleBindings
 kubectl get clusterrolebindings
 
-# --- Inspeccionar quien tiene cluster-admin ---
-kubectl describe clusterrolebinding cluster-admin
+# Inspeccionar quien tiene cluster-admin
 # Si esta bound a un service account o grupo amplio = riesgo de escalada
+kubectl describe clusterrolebinding cluster-admin
 
-# --- Revisar RoleBindings a nivel de namespace ---
+# Revisar RoleBindings a nivel de namespace
 kubectl get rolebindings -A
-kubectl get rolebindings -A -o wide
-
-# --- Buscar bindings que referencien cluster-admin ---
-kubectl get clusterrolebindings -o json | jq -r '.items[] | select(.roleRef.name=="cluster-admin") | .metadata.name + " -> " + (.subjects[]? | .kind + "/" + .name)'
-
-# --- Buscar ClusterRoles con wildcards (permisos excesivos) ---
-kubectl get clusterroles -o json | jq -r '.items[] | select(.rules[]?.verbs[]? == "*" or .rules[]?.resources[]? == "*") | .metadata.name'
 ```
 
 ---
@@ -388,45 +322,38 @@ Conceptos clave:
 - El CIS Benchmark recomienda: limitar role bindings al scope minimo necesario, evitar cluster-wide privileges innecesarios, crear service accounts dedicados por workload
 
 ```bash
-# --- Crear namespace aislado ---
+# Crear namespace aislado
 kubectl create namespace rbac-demo
 
-# --- Crear role de solo lectura para Pods (namespace-scoped) ---
+# Crear role de solo lectura para Pods (namespace-scoped)
 kubectl create role pod-reader \
   --verb=get,list,watch \
   --resource=pods \
   -n rbac-demo
 
-# --- Crear service account dedicado ---
+# Crear service account dedicado
 kubectl create serviceaccount pod-reader-sa -n rbac-demo
 
-# --- Crear RoleBinding: conectar service account al role ---
+# Crear RoleBinding: conectar service account al role (solo dentro del namespace)
 kubectl create rolebinding pod-reader-binding \
   --role=pod-reader \
   --serviceaccount=rbac-demo:pod-reader-sa \
   -n rbac-demo
 
-# --- Verificar permisos del service account ---
+# Verificar permisos del service account
 # Puede listar pods en su namespace (debe retornar "yes")
 kubectl auth can-i list pods -n rbac-demo \
   --as=system:serviceaccount:rbac-demo:pod-reader-sa
 
-# No puede eliminar pods (debe retornar "no")
+# No puede hacer acciones destructivas (debe retornar "no")
 kubectl auth can-i delete pods -n rbac-demo \
-  --as=system:serviceaccount:rbac-demo:pod-reader-sa
-
-# No puede crear pods (debe retornar "no")
-kubectl auth can-i create pods -n rbac-demo \
   --as=system:serviceaccount:rbac-demo:pod-reader-sa
 
 # No tiene visibilidad fuera de su namespace (debe retornar "no")
 kubectl auth can-i list pods -n default \
   --as=system:serviceaccount:rbac-demo:pod-reader-sa
 
-kubectl auth can-i list pods -n kube-system \
-  --as=system:serviceaccount:rbac-demo:pod-reader-sa
-
-# --- Limpiar ---
+# Limpiar
 kubectl delete namespace rbac-demo
 ```
 
@@ -441,10 +368,10 @@ Conceptos clave:
 - El CIS Benchmark recomienda: deshabilitar automount del token por defecto, limitar permisos del token al minimo, y aplicar rotacion con lifetimes acotados
 
 ```bash
-# --- Crear namespace aislado ---
+# Crear namespace aislado
 kubectl create namespace sa-token-demo
 
-# --- Crear service account con automount deshabilitado ---
+# Crear service account con automount deshabilitado
 cat <<EOF | kubectl apply -f -
 apiVersion: v1
 kind: ServiceAccount
@@ -454,7 +381,7 @@ metadata:
 automountServiceAccountToken: false
 EOF
 
-# --- Desplegar Pod SIN token de service account ---
+# Desplegar Pod SIN token de service account
 cat <<EOF | kubectl apply -f -
 apiVersion: v1
 kind: Pod
@@ -469,15 +396,10 @@ spec:
     command: ["sleep", "3600"]
 EOF
 
-# Verificar que NO hay token montado
+# Verificar que NO hay token montado (debe fallar: directorio no existe)
 kubectl exec -n sa-token-demo no-token-pod -- ls /var/run/secrets/kubernetes.io/serviceaccount/ 2>&1
-# Debe fallar: el directorio no existe
 
-# Intentar acceder al API de Kubernetes (debe fallar)
-kubectl exec -n sa-token-demo no-token-pod -- wget --no-check-certificate -qO- https://kubernetes.default.svc/api/v1/namespaces 2>&1
-# Sin token, el Pod no puede autenticarse
-
-# --- Desplegar Pod CON token explicitamente habilitado ---
+# Desplegar Pod CON token explicitamente habilitado
 cat <<EOF | kubectl apply -f -
 apiVersion: v1
 kind: Pod
@@ -494,9 +416,9 @@ spec:
 EOF
 
 # Verificar que el token SI esta presente
-kubectl exec -n sa-token-demo with-token-pod -- ls /var/run/secrets/kubernetes.io/serviceaccount/
 # Debe mostrar: ca.crt, namespace, token
+kubectl exec -n sa-token-demo with-token-pod -- ls /var/run/secrets/kubernetes.io/serviceaccount/
 
-# --- Limpiar ---
+# Limpiar
 kubectl delete namespace sa-token-demo
 ```
